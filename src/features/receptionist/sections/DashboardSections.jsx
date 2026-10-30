@@ -34,8 +34,10 @@ function QueueCard({ data, clinics, onView, title = "Today's Queue", subtitle, r
   const rows = groups[tab] || [];
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
   const [emptyTitle, emptyText] = EMPTY_TEXT[tab];
+  // No card around the queue: header, tabs and patient cards sit on the page,
+  // full width — the same layout as the doctor's Appointment Queue.
   return (
-    <Card>
+    <View style={s.queueSection}>
       <View style={s.queueHead}>
         <View style={s.queueHeadIcon}><Ionicons name="people" size={18} color={REC.primary} /></View>
         <View style={s.flex}>
@@ -52,8 +54,8 @@ function QueueCard({ data, clinics, onView, title = "Today's Queue", subtitle, r
       <QueueTabs active={tab} counts={counts} onChange={setTab} />
       {rows.length
         ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} />)}</ResponsiveGrid>
-        : <Empty title={emptyTitle} description={emptyText} />}
-    </Card>
+        : <View style={s.queueEmpty}><Empty title={emptyTitle} description={emptyText} /></View>}
+    </View>
   );
 }
 
@@ -138,45 +140,165 @@ export function OverviewSection({ data, clinics, error, onView }) {
   );
 }
 
-export function LiveQueueSection({ data, clinics, clinic, error, onView, onNavigate }) {
-  if (!data) return <LoadingCard error={error} />;
-  const timing = data.timing;
-  return (
-    <>
-      <LinearGradient colors={['#12756D', '#1C9686']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.launch}>
-        <View style={s.flex}>
-          <Text style={s.launchTitle}>Show the queue on your LED</Text>
-        </View>
-        <Pressable onPress={() => onNavigate('led-display')} style={({ pressed }) => [s.welcomeButton, s.launchButton, pressed && s.welcomeButtonPressed]}>
-          <Ionicons name="tv-outline" size={16} color={REC.primary} />
-          <Text style={s.welcomeButtonText}>LED</Text>
-        </Pressable>
-      </LinearGradient>
+const tokenText = (row) => (row?.token != null && row.token !== '' ? String(row.token) : '--');
 
-      {dedupeRows(data.currentPatients || []).length > 0 && (
+// Entry point to the clinic LED / TV screen that shows this same queue.
+function LedLaunchCard({ onOpen }) {
+  return (
+    <LinearGradient colors={['#0D6A62', '#1A9483']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.launch}>
+      <View style={s.launchGlow} />
+      <View style={s.launchGlowSmall} />
+      <View style={s.launchTop}>
+        <View style={s.launchIcon}><Ionicons name="tv-outline" size={22} color="#FFFFFF" /></View>
+        <View style={s.flex}>
+          <Text style={s.launchEyebrow}>WAITING ROOM DISPLAY</Text>
+          <Text style={s.launchTitle}>Show the queue on your LED</Text>
+          <Text style={s.launchText}>Patients see the current and next tokens, refreshed every 3 seconds.</Text>
+        </View>
+      </View>
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        style={({ pressed }) => [s.launchButton, pressed && s.launchButtonPressed]}
+      >
+        <Ionicons name="tv" size={16} color={REC.primary} />
+        <Text style={s.launchButtonText}>Open LED display</Text>
+        <Ionicons name="arrow-forward" size={16} color={REC.primary} />
+      </Pressable>
+    </LinearGradient>
+  );
+}
+
+// What the waiting room sees: the token with the doctor, who is next, the day's
+// counts and the wait estimate — in one card.
+function NowServingCard({ data, groups, clinics, onView }) {
+  const current = dedupeRows(data.currentPatients || [])[0] || groups['in-progress'][0];
+  const waiting = groups.pending;
+  const nextRows = waiting.slice(0, 4);
+  const timing = data.timing;
+  const wait = timing?.estimatedWaitLabel || (timing?.estimatedWaitMinutes != null ? `${timing.estimatedWaitMinutes} min` : '');
+  const breakNote = [timing?.breakInfo?.headline, timing?.breakInfo?.expectedStart && `Expected start ${timing.breakInfo.expectedStart}`]
+    .filter(Boolean).join(' · ');
+  const stats = [
+    { label: 'Waiting', value: data.summary?.waiting ?? waiting.length, icon: 'time-outline', color: '#C27C0E' },
+    { label: 'With doctor', value: data.summary?.ongoing ?? groups['in-progress'].length, icon: 'medkit-outline', color: REC.primary },
+    { label: 'Completed', value: data.summary?.completed ?? groups.completed.length, icon: 'checkmark-circle-outline', color: '#3E8E41' },
+  ];
+  return (
+    <Card style={s.serveCard}>
+      <View style={s.serveHead}>
+        <Text style={s.serveTitle}>Now serving</Text>
+        <View style={s.livePill}>
+          <View style={s.dot} />
+          <Text style={s.livePillText}>LIVE</Text>
+        </View>
+      </View>
+
+      <View style={[s.servePanel, current?.emergency && s.servePanelEmergency]}>
+        <LinearGradient
+          colors={current?.emergency ? ['#F87171', '#DC2626'] : ['#12756D', '#1C9686']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[s.serveToken, !current && s.serveTokenIdle]}
+        >
+          <Text style={s.serveTokenLabel}>TOKEN</Text>
+          <Text translate={false} style={s.serveTokenText} numberOfLines={1} adjustsFontSizeToFit>{tokenText(current)}</Text>
+        </LinearGradient>
+        <View style={s.flex}>
+          {current ? (
+            <>
+              <Text style={[s.serveState, current.emergency && s.serveStateEmergency]}>
+                {current.emergency ? 'Emergency · ' : ''}{current.queueStatus === 'called' ? 'Patient called' : 'In consultation'}
+              </Text>
+              <Text translate={false} style={s.serveName} numberOfLines={1}>{current.patientName}</Text>
+              <Text translate={false} style={s.serveMeta} numberOfLines={1}>
+                {current.timing?.startedAt ? `Started ${displayTime(current.timing.startedAt)}` : clinicName(clinics, current.clinicId)}
+                {current.timing?.state === 'paused' ? ' · Paused' : ''}
+              </Text>
+              <Pressable onPress={() => onView(current)} style={s.serveLink} hitSlop={6} accessibilityRole="button">
+                <Text style={s.textButtonText}>View details</Text>
+                <Ionicons name="arrow-forward" size={14} color={REC.primary} />
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text style={s.serveState}>Waiting for next call</Text>
+              <Text style={s.serveName}>No patient with the doctor</Text>
+              <Text style={s.serveMeta}>The token appears here as soon as the doctor calls a patient.</Text>
+            </>
+          )}
+        </View>
+      </View>
+
+      <Text style={s.serveSubhead}>NEXT UP</Text>
+      {nextRows.length ? (
+        <View style={s.nextChips}>
+          {nextRows.map((row, index) => (
+            <View key={patientKey(row)} style={[s.nextChip, index === 0 && s.nextChipFirst, row.emergency && s.nextChipEmergency]}>
+              {row.emergency && <Ionicons name="alert-circle" size={13} color="#C24848" />}
+              <Text translate={false} style={[s.nextChipText, index === 0 && s.nextChipTextFirst, row.emergency && s.nextChipTextEmergency]}>
+                #{tokenText(row)}
+              </Text>
+            </View>
+          ))}
+          {waiting.length > nextRows.length && (
+            <Text translate={false} style={s.nextMore}>+{waiting.length - nextRows.length} more</Text>
+          )}
+        </View>
+      ) : (
+        <View style={s.nextClear}>
+          <Ionicons name="checkmark-done" size={15} color="#3E8E41" />
+          <Text style={s.nextClearText}>Queue is clear</Text>
+        </View>
+      )}
+
+      <View style={s.statStrip}>
+        {stats.map((stat, index) => (
+          <View key={stat.label} style={[s.statCell, index > 0 && s.statCellDivider]}>
+            <Text translate={false} style={[s.statValue, { color: stat.color }]}>{stat.value ?? 0}</Text>
+            <View style={s.statLabelRow}>
+              <Ionicons name={stat.icon} size={12} color={REC.muted} />
+              <Text style={s.statLabel} numberOfLines={1}>{stat.label}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={[s.waitRow, !!breakNote && s.waitRowBreak]}>
+        <View style={[s.waitIcon, !!breakNote && s.waitIconBreak]}>
+          <Ionicons name={breakNote ? 'cafe-outline' : 'hourglass-outline'} size={17} color={breakNote ? '#B54708' : REC.primary} />
+        </View>
+        <View style={s.flex}>
+          <Text style={s.waitLabel}>Estimated wait</Text>
+          {!!breakNote && <Text translate={false} style={s.waitNote}>{breakNote}</Text>}
+        </View>
+        <Text translate={false} style={s.waitValue}>{wait || '--'}</Text>
+      </View>
+    </Card>
+  );
+}
+
+export function LiveQueueSection({ data, clinics, error, onView, onNavigate }) {
+  const groups = useMemo(() => groupQueue(allRows(data)), [data]);
+  const { gutter } = useResponsiveLayout();
+  if (!data) return <LoadingCard error={error} />;
+  // The first patient with the doctor leads "Now serving"; any others (e.g. a
+  // second room) are listed below it.
+  const alsoWithDoctor = dedupeRows(data.currentPatients || []).slice(1);
+  return (
+    <View style={[s.overview, { paddingHorizontal: gutter }]}>
+      <LedLaunchCard onOpen={() => onNavigate('led-display')} />
+      <NowServingCard data={data} groups={groups} clinics={clinics} onView={onView} />
+
+      {alsoWithDoctor.length > 0 && (
         <Card>
-          <CardHeading title="With the doctor" />
-          <CurrentCheckups data={data} clinics={clinics} onView={onView} />
+          <CardHeading title="Also with the doctor" count={alsoWithDoctor.length} />
+          <CurrentCheckups data={{ currentPatients: alsoWithDoctor }} clinics={clinics} onView={onView} />
         </Card>
       )}
 
-      <Card>
-        <CardHeading title="Wait estimate" />
-        {timing ? (
-          <Notice icon="time-outline">
-            {!!timing.breakInfo?.headline && <NoticeText strong translate={false}>{timing.breakInfo.headline}</NoticeText>}
-            <NoticeText translate={false}>
-              Estimated wait: {timing.estimatedWaitLabel || (timing.estimatedWaitMinutes != null ? `${timing.estimatedWaitMinutes} min` : 'Updating estimate')}
-              {timing.breakInfo?.expectedStart ? ` / Expected start: ${timing.breakInfo.expectedStart}` : ''}
-            </NoticeText>
-          </Notice>
-        ) : (
-          <Text style={s.muted}>No wait estimate right now.</Text>
-        )}
-      </Card>
-
-      <QueueCard data={data} clinics={clinics} onView={onView} title="Patient queue" />
-    </>
+      <QueueCard data={data} clinics={clinics} onView={onView} title="Patient queue" subtitle="Emergencies first, then by token" />
+    </View>
   );
 }
 
@@ -420,10 +542,9 @@ const s = StyleSheet.create({
   inline: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   muted: { fontSize: 12.5, color: REC.muted, marginTop: 2 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: REC.green },
-  welcomeButton: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#FFFFFF', marginTop: 16 },
-  welcomeButtonPressed: { backgroundColor: '#E7F4EE' },
-  welcomeButtonText: { fontSize: 13.5, fontWeight: '800', color: REC.primary },
   overview: { minWidth: 0 },
+  queueSection: { marginTop: 6, marginBottom: 16 },
+  queueEmpty: { borderRadius: 14, borderWidth: 1, borderColor: REC.line, backgroundColor: '#FFFFFF', paddingHorizontal: 12 },
   queueHead: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
   queueHeadIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
   queueTitle: { fontSize: 17, fontWeight: '800', color: REC.ink },
@@ -444,10 +565,60 @@ const s = StyleSheet.create({
   footerText: { flexShrink: 1, fontSize: 12.5, color: '#5B7F73' },
   textButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4 },
   textButtonText: { fontSize: 13, fontWeight: '700', color: REC.primary },
-  launch: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 16, marginBottom: 16 },
-  launchTitle: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
-  launchText: { fontSize: 12, lineHeight: 17, color: 'rgba(255,255,255,0.88)', marginTop: 3 },
-  launchButton: { marginTop: 0 },
+  launch: {
+    padding: 18, borderRadius: 18, marginBottom: 16, overflow: 'hidden',
+    shadowColor: '#0D6A62', shadowOpacity: 0.22, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4,
+  },
+  launchGlow: { position: 'absolute', top: -60, right: -40, width: 170, height: 170, borderRadius: 85, backgroundColor: 'rgba(255,255,255,0.08)' },
+  launchGlowSmall: { position: 'absolute', bottom: -36, right: 70, width: 90, height: 90, borderRadius: 45, backgroundColor: 'rgba(255,255,255,0.06)' },
+  launchTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
+  launchIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.24)', alignItems: 'center', justifyContent: 'center' },
+  launchEyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1.4, color: 'rgba(255,255,255,0.72)' },
+  launchTitle: { fontSize: 17, lineHeight: 23, fontWeight: '800', color: '#FFFFFF', marginTop: 3 },
+  launchText: { fontSize: 12.5, lineHeight: 18, color: 'rgba(255,255,255,0.86)', marginTop: 4 },
+  launchButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 46, borderRadius: 12, backgroundColor: '#FFFFFF', marginTop: 16 },
+  launchButtonPressed: { backgroundColor: '#E7F4EE' },
+  launchButtonText: { fontSize: 14, fontWeight: '800', color: REC.primary },
+  serveCard: { borderRadius: 18, padding: 16 },
+  serveHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  serveTitle: { fontSize: 17, fontWeight: '800', color: REC.ink },
+  livePill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: '#E9F7F0' },
+  livePillText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: '#1F8F63' },
+  servePanel: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: 14, backgroundColor: '#F3FAF7', borderWidth: 1, borderColor: '#D5EDE3' },
+  servePanelEmergency: { backgroundColor: '#FFF5F5', borderColor: '#F4C9C9' },
+  serveToken: { width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  serveTokenIdle: { opacity: 0.45 },
+  serveTokenLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 2, color: 'rgba(255,255,255,0.85)' },
+  serveTokenText: { fontSize: 34, lineHeight: 40, fontWeight: '800', color: '#FFFFFF' },
+  serveState: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6, textTransform: 'uppercase', color: REC.primary },
+  serveStateEmergency: { color: '#C24848' },
+  serveName: { fontSize: 17, lineHeight: 22, fontWeight: '800', color: REC.ink, marginTop: 3 },
+  serveMeta: { fontSize: 12.5, lineHeight: 17, color: REC.muted, marginTop: 2 },
+  serveLink: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 32, marginTop: 4 },
+  serveSubhead: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.4, color: REC.muted, marginTop: 18, marginBottom: 8 },
+  nextChips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  nextChip: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 54, height: 36, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#F4F7F9', borderWidth: 1, borderColor: REC.line, justifyContent: 'center' },
+  nextChipFirst: { backgroundColor: REC.soft, borderColor: '#B7E4DA' },
+  nextChipEmergency: { backgroundColor: '#FFF0F0', borderColor: '#F4C9C9' },
+  nextChipText: { fontSize: 15, fontWeight: '800', color: '#476072' },
+  nextChipTextFirst: { color: REC.primary },
+  nextChipTextEmergency: { color: '#C24848' },
+  nextMore: { fontSize: 12.5, fontWeight: '700', color: REC.muted, marginLeft: 2 },
+  nextClear: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36 },
+  nextClearText: { fontSize: 13.5, fontWeight: '700', color: '#3E8E41' },
+  statStrip: { flexDirection: 'row', marginTop: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: '#F8FAFB', borderWidth: 1, borderColor: REC.line },
+  statCell: { flex: 1, minWidth: 0, alignItems: 'center', paddingHorizontal: 6 },
+  statCellDivider: { borderLeftWidth: 1, borderLeftColor: REC.line },
+  statValue: { fontSize: 22, lineHeight: 27, fontWeight: '800' },
+  statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  statLabel: { flexShrink: 1, fontSize: 11.5, fontWeight: '600', color: REC.muted },
+  waitRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: REC.line },
+  waitRowBreak: { backgroundColor: '#FFF8EC', borderColor: '#F6DDAE' },
+  waitIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  waitIconBreak: { backgroundColor: '#FDEBCF' },
+  waitLabel: { fontSize: 13.5, fontWeight: '700', color: REC.ink },
+  waitNote: { fontSize: 12, lineHeight: 17, color: '#B54708', marginTop: 2 },
+  waitValue: { fontSize: 16, fontWeight: '800', color: REC.ink },
   waitingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: REC.line },
   queuePosition: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#F2F5F7', color: '#92A1AD', fontSize: 11, textAlign: 'center', textAlignVertical: 'center', overflow: 'hidden' },
   waitingToken: { fontSize: 14, fontWeight: '700', color: '#55748B' },

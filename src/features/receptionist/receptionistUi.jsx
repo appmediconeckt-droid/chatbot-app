@@ -427,26 +427,27 @@ function PatientAvailabilityControl({ patient }) {
   };
   return (
     <View style={s.availabilityBlock}>
-      <Text style={s.availabilityLabel}>Patient availability</Text>
-      <View style={s.availabilityButtons}>
-        {['available', 'unavailable'].map((status) => {
-          const selected = current.status === status;
-          return (
-            <Pressable
-              key={status}
-              accessibilityRole="button"
-              accessibilityState={{ selected, disabled: busy || selected }}
-              disabled={busy || selected}
-              onPress={() => update(status)}
-              style={[s.availabilityButton, selected && (status === 'available' ? s.availabilityAvailable : s.availabilityUnavailable)]}
-            >
-              <View style={[s.availabilityDot, status === 'available' ? s.availableDot : s.unavailableDot]} />
-              <Text style={[s.availabilityButtonText, selected && (status === 'available' ? s.availableText : s.unavailableText)]}>
-                {status === 'available' ? 'Available' : 'Unavailable'}
-              </Text>
-            </Pressable>
-          );
-        })}
+      <View style={s.availabilityRow}>
+        <View style={s.availabilityButtons}>
+          {['available', 'unavailable'].map((status) => {
+            const selected = current.status === status;
+            return (
+              <Pressable
+                key={status}
+                accessibilityRole="button"
+                accessibilityState={{ selected, disabled: busy || selected }}
+                disabled={busy || selected}
+                onPress={() => update(status)}
+                style={[s.availabilityButton, selected && (status === 'available' ? s.availabilityAvailable : s.availabilityUnavailable)]}
+              >
+                <View style={[s.availabilityDot, status === 'available' ? s.availableDot : s.unavailableDot]} />
+                <Text style={[s.availabilityButtonText, selected && (status === 'available' ? s.availableText : s.unavailableText)]}>
+                  {status === 'available' ? 'Available' : 'Unavailable'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
       {(busy || current.returnedAt) && <Text style={s.availabilityHint}>{busy ? 'Saving...' : 'Returned - priority next'}</Text>}
     </View>
@@ -457,14 +458,9 @@ export function AppointmentRow({ row: appointment, clinics, onView, onCancel, ca
   const { withSavedVitals } = useReceptionistVitals();
   const row = withSavedVitals(appointment);
   const busy = cancelBusy && cancelBusy === `${row.source}:${row.id}`;
-  const statuses = appointmentStatuses(row);
-  // The left edge takes the colour of the visit's state.
-  const accent = row.emergency ? '#DC2626' : (BADGES[String(statuses[0] || '').toLowerCase()]?.fg || REC.primary);
   const phone = formatPhoneNumber(row.phoneNumber || row.phone, row.phoneCountryCode || row.patient?.phoneCountryCode);
-  const walkIn = row.source === 'walkin';
   return (
     <View style={[s.aptRow, row.emergency && s.aptRowEmergency]}>
-      <View style={[s.aptAccent, { backgroundColor: accent }]} />
       <View style={s.aptTop}>
         <View style={[s.tokenTile, row.emergency && s.tokenTileEmergency]}>
           <Text style={s.tokenTileLabel}>{row.emergency ? 'SOS' : 'TOKEN'}</Text>
@@ -473,40 +469,34 @@ export function AppointmentRow({ row: appointment, clinics, onView, onCancel, ca
           </Text>
         </View>
         <View style={s.aptIdentity}>
-          <Text translate={false} style={s.aptName} numberOfLines={1}>{row.patientName}</Text>
+          <View style={s.aptNameRow}>
+            <Text translate={false} style={s.aptName} numberOfLines={1}>{row.patientName}</Text>
+            {row.emergency && <Badge emergency />}
+          </View>
           <View style={s.aptPhoneRow}>
             <Ionicons name="call-outline" size={12} color={REC.muted} />
             <Text translate={false} style={s.aptSub} numberOfLines={1}>{phone || 'Phone not recorded'}</Text>
           </View>
         </View>
         <View style={[s.timePill, row.emergency && s.timePillEmergency]}>
-          <Ionicons name={row.emergency ? 'alert-circle' : 'time-outline'} size={13} color={row.emergency ? '#C24848' : REC.primary} />
+          <Ionicons name={row.emergency ? 'alert-circle' : 'time-outline'} size={12} color={row.emergency ? '#C24848' : REC.primary} />
           <Text translate={false} style={[s.timePillText, row.emergency && s.timePillTextEmergency]}>{row.time ? clockLabel(row.time) : '--'}</Text>
         </View>
       </View>
 
       <View style={s.aptMeta}>
         <View style={s.metaItem}>
-          <Ionicons name="calendar-outline" size={13} color={REC.primary} />
+          <Ionicons name="calendar-outline" size={12} color={REC.muted} />
           <Text translate={false} style={s.metaText}>{dateLabel(row.date)}</Text>
         </View>
         <View style={s.metaDivider} />
         <View style={[s.metaItem, s.metaItemGrow]}>
-          <Ionicons name="business-outline" size={13} color={REC.primary} />
+          <Ionicons name="business-outline" size={12} color={REC.muted} />
           <Text translate={false} style={s.metaText} numberOfLines={1}>{clinicName(clinics, row.clinicId)}</Text>
         </View>
       </View>
 
       <EmergencyReason row={row} />
-
-      <View style={s.aptBadges}>
-        {row.emergency && <Badge emergency />}
-        {statuses.map((status) => <Badge key={status} value={status} />)}
-        <View style={[s.sourceTag, walkIn && s.sourceTagWalkIn]}>
-          <Ionicons name={walkIn ? 'walk-outline' : 'globe-outline'} size={11} color={walkIn ? '#B54708' : '#3975C7'} />
-          <Text style={[s.sourceTagText, walkIn && s.sourceTagTextWalkIn]}>{walkIn ? 'Walk-in' : 'Online'}</Text>
-        </View>
-      </View>
 
       <PatientAvailabilityControl patient={row} />
 
@@ -823,44 +813,39 @@ const s = StyleSheet.create({
   sheetOptionText: { flex: 1, fontSize: 15, color: REC.ink },
   sheetOptionActive: { fontWeight: '700', color: REC.primary },
   aptRow: {
-    borderWidth: 1, borderColor: REC.line, borderRadius: 16, padding: 14, paddingLeft: 17, marginBottom: 12, backgroundColor: '#FFFFFF', overflow: 'hidden',
-    shadowColor: '#0F3D38', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2,
+    borderWidth: 1, borderColor: REC.line, borderRadius: 14, padding: 12, marginBottom: 10, backgroundColor: '#FFFFFF',
+    shadowColor: '#0F3D38', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1,
   },
   aptRowEmergency: { borderColor: '#F4C9C9', backgroundColor: '#FFFBFB' },
-  aptAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
   emergencyReason: { marginTop: 10, marginBottom: 10, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#DC2626' },
   emergencyReasonLabel: { fontSize: 11, fontWeight: '700', color: '#B42318', marginBottom: 3 },
   emergencyReasonText: { fontSize: 13, lineHeight: 19, color: REC.ink },
-  tokenTile: { width: 54, height: 54, borderRadius: 14, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  tokenTile: { width: 46, height: 46, borderRadius: 12, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   tokenTileEmergency: { backgroundColor: '#DC2626' },
-  tokenTileNumber: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginTop: 1 },
-  tokenTileLabel: { fontSize: 8, fontWeight: '800', letterSpacing: 1.2, color: 'rgba(255,255,255,0.8)' },
-  timePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, minHeight: 30, borderRadius: 15, backgroundColor: REC.soft },
+  tokenTileNumber: { fontSize: 17, lineHeight: 21, fontWeight: '800', color: '#FFFFFF' },
+  tokenTileLabel: { fontSize: 7.5, fontWeight: '800', letterSpacing: 1, color: 'rgba(255,255,255,0.8)' },
+  timePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, minHeight: 26, borderRadius: 13, backgroundColor: REC.soft },
   timePillEmergency: { backgroundColor: '#FFF0F0' },
-  timePillText: { fontSize: 12.5, fontWeight: '800', color: REC.primary },
+  timePillText: { fontSize: 12, fontWeight: '800', color: REC.primary },
   timePillTextEmergency: { color: '#C24848' },
-  aptTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  aptTop: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   aptIdentity: { flex: 1, minWidth: 0 },
+  aptNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   patientAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#E9F5EF', alignItems: 'center', justifyContent: 'center' },
   patientAvatarText: { fontSize: 15, fontWeight: '800', color: REC.primary },
-  aptName: { fontSize: 16, fontWeight: '800', color: REC.ink },
-  aptPhoneRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
-  aptSub: { flexShrink: 1, fontSize: 12.5, color: REC.muted },
+  aptName: { flexShrink: 1, fontSize: 15, fontWeight: '800', color: REC.ink },
+  aptPhoneRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  aptSub: { flexShrink: 1, fontSize: 12, color: REC.muted },
   token: { fontSize: 14, fontWeight: '700', color: '#55748B' },
-  aptMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingVertical: 9, paddingHorizontal: 11, borderRadius: 11, backgroundColor: '#F6F9FA' },
-  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  aptMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#EEF2F5' },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   metaItemGrow: { flex: 1, minWidth: 0 },
-  metaDivider: { width: 1, height: 14, backgroundColor: '#DCE3E8' },
-  metaText: { flexShrink: 1, fontSize: 12.5, fontWeight: '600', color: '#475467' },
-  aptBadges: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 12 },
-  sourceTag: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, backgroundColor: '#E8F1FF' },
-  sourceTagWalkIn: { backgroundColor: '#FFF4E5' },
-  sourceTagText: { fontSize: 10.5, fontWeight: '700', color: '#3975C7' },
-  sourceTagTextWalkIn: { color: '#B54708' },
-  availabilityBlock: { marginTop: 12, padding: 10, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 11, backgroundColor: '#F8FAFC' },
-  availabilityLabel: { fontSize: 11.5, fontWeight: '700', color: REC.muted, marginBottom: 7 },
-  availabilityButtons: { flexDirection: 'row', gap: 6 },
-  availabilityButton: { flex: 1, minHeight: 34, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 9, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7 },
+  metaDivider: { width: 1, height: 12, backgroundColor: '#DCE3E8' },
+  metaText: { flexShrink: 1, fontSize: 12, fontWeight: '600', color: '#475467' },
+  availabilityBlock: { marginTop: 10 },
+  availabilityRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  availabilityButtons: { flex: 1, flexDirection: 'row', gap: 6 },
+  availabilityButton: { flex: 1, minHeight: 30, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 8, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 6 },
   availabilityAvailable: { borderColor: '#A7D8C3', backgroundColor: '#E7F7EF' },
   availabilityUnavailable: { borderColor: '#E7C58C', backgroundColor: '#FFF4DF' },
   availabilityDot: { width: 6, height: 6, borderRadius: 3 },
@@ -870,7 +855,7 @@ const s = StyleSheet.create({
   availableText: { color: '#16704E' },
   unavailableText: { color: '#99600E' },
   availabilityHint: { marginTop: 6, fontSize: 10.5, color: REC.muted },
-  aptActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF2F5' },
+  aptActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   dialogFrame: { height: '100%', maxHeight: '100%', justifyContent: 'flex-end' },
   dialogOverlay: { justifyContent: 'flex-start' },
   dialogSheet: { height: '88%', maxHeight: '100%' },

@@ -131,3 +131,36 @@ Starting dev server on http://localhost:8081
  BUNDLE  ./index.js ░░░░░░░░░░░░░░░░ 0% (0/1)
  BUNDLE  ./index.js 
  BUNDLE  ./index.js 
+ ERROR  [timeout] connection terminated with Device for app='com.mindcrawller.humaeli' on device='SM-A145F - 15 - API 35' after not responding for 60 seconds.
+ ERROR  [timeout] connection terminated with Device for app='com.mindcrawller.humaeli' on device='CPH2505 - 15 - API 35' after not responding for 60 seconds.
+ ERROR  SyntaxError: C:\New folder\chatbot-app\src\features\receptionist\receptionistUi.jsx: Unexpected token, expected "}" (457:36)
+
+  455 | }
+  456 |
+> 457 | export function AppointmentRow({ row: appointment, clinics, onView, onCancel, cancelBusy }) {
+      |                                     ^
+  458 |   const { withSavedVitals } = useReceptionistVitals();
+  459 |   const row = withSavedVitals(appointment);
+  460 |   const busy = cancelBusy && cancelBusy === `${row.source}:${row.id}`;
+ ERROR  SyntaxError: C:\New folder\chatbot-app\src\features\receptionist\sections\DashboardSections.jsx: Expected corresponding JSX closing tag for <View>. (58:4)
+
+  56 |         ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} />)}</ResponsiveGrid>
+  57 |         : <Empty title={emptyTitle} description={emptyText} />}
+> 58 |     </Card>
+     |     ^
+  59 |   );
+  60 | }
+  61 |
+ ERROR  SyntaxError: C:\New folder\chatbot-app\src\features\receptionist\sections\DashboardSections.jsx: Expected corresponding JSX closing tag for <View>. (301:4)
+
+  299 |
+  300 |       <QueueCard data={data} clinics={clinics} onView={onView} title="Patient queue" subtitle="Emergencies first, then by token" />
+> 301 |     </>
+      |     ^
+  302 |   );
+  303 | }
+  304 |
+ BUNDLE  ./index.js ░░░░░░░░░░░░░░░░ 0% (0/1)
+ BUNDLE  ./index.js 
+ BUNDLE  ./index.js ░░░░░░░░░░░░░░░░ 0% (0/1)
+ BUNDLE  ./index.js 

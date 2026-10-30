@@ -214,11 +214,11 @@ test('typing, keyboard resizing and polling retain the same native input and dra
   expect(Keyboard.dismiss).not.toHaveBeenCalled();
 });
 
-test.each(['completed', 'pending'])('shows %s once on an appointment card', async status => {
+test.each(['completed', 'pending'])('hides the %s status badge on an appointment card', async status => {
   api.get.mockResolvedValue({ data: { appointments: [{ ...patient, status, queueStatus: status }], total: 1 } });
   await renderAppointments();
   const card = root.root.findByType(AppointmentRow);
-  expect(card.findAllByType(Badge).map(node => node.props.value)).toEqual([status]);
+  expect(card.findAllByType(Badge)).toHaveLength(0);
 });
 
 test('shows emergency reason on the card and full treatment in patient details', async () => {
