@@ -62,6 +62,8 @@ import {
   getAppointmentCancellationState,
   isAppointmentStartTimeReached,
   isCompletedToday,
+  isDoctorInProgressAppointment,
+  isDoctorPendingAppointment,
   isScheduledToday,
   isTodayAppointment,
   loadDoctorAppointmentFeed,
@@ -73,6 +75,14 @@ import {
   startBreak,
 } from '../dashboard/api/doctorAppointments';
 import { endDirectCall, endedCallMessage, getDirectCallStatus, startDirectCall } from '../dashboard/api/doctorCalls';
+import {
+  MAX_UNANSWERED_APPOINTMENT_CALLS,
+  appointmentCallProgressKey,
+  readAppointmentCallProgress,
+  saveAppointmentCallProgress,
+  unansweredAppointmentCalls,
+  updateAppointmentCallProgress,
+} from '../dashboard/doctorAppointmentCallProgress';
 import VideoCallModal from '../../../screens/user/Component/UserDashboard/Tab/CallModal/VideoCallModal';
 import axiosInstance from '../../../axiosConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -93,6 +103,7 @@ const APPOINTMENT_REFRESH_EVENTS = [
   'appointment-status-changed',
   'appointment-confirmed',
   'appointment-cancelled',
+  'appointments:updated',
   // Emitted on every queue change (the web doctor dashboard refreshes on it).
   'queueUpdated',
 ];
@@ -589,6 +600,7 @@ export default function DoctorDashboard({ navigation }) {
   // (web: "queue membership is determined by server status, never session
   // time") — the app no longer cancels anyone on its own.
   const [cancelledToday, setCancelledToday] = useState([]);
+  const [callProgressByAppointment, setCallProgressByAppointment] = useState({});
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -621,6 +633,28 @@ export default function DoctorDashboard({ navigation }) {
     const message = err?.response?.data?.message || err?.response?.data?.error || err?.message || fallback;
     Alert.alert('Error', message);
   }, []);
+
+  const callProgressFor = (appointment) => callProgressByAppointment[appointment?.id] || [];
+  const missedCallCount = (appointment) => unansweredAppointmentCalls(callProgressFor(appointment));
+  const needsCallNext = (appointment) => missedCallCount(appointment) >= MAX_UNANSWERED_APPOINTMENT_CALLS;
+  const recordCallProgress = (appointment, callId, event) => {
+    if (!appointment?.id || !callId) return;
+    setCallProgressByAppointment((current) => {
+      const calls = updateAppointmentCallProgress(current[appointment.id] || [], callId, event);
+      saveAppointmentCallProgress(appointmentCallProgressKey(doctorId, appointment), calls).catch(() => {});
+      return { ...current, [appointment.id]: calls };
+    });
+  };
+  const clearCallProgress = (appointment) => {
+    if (!appointment?.id) return;
+    setCallProgressByAppointment((current) => {
+      if (!current[appointment.id]) return current;
+      const next = { ...current };
+      delete next[appointment.id];
+      return next;
+    });
+    saveAppointmentCallProgress(appointmentCallProgressKey(doctorId, appointment), []).catch(() => {});
+  };
 
   // activeSession is local state, so reopening the dashboard mid-consultation
   // used to lose it: the live consultation card vanished and the patient's queue
@@ -684,6 +718,11 @@ export default function DoctorDashboard({ navigation }) {
           }
           return { ...appt, status: 'skipped', queueStatus: 'skipped' };
         });
+      const progressEntries = await Promise.all(liveAppointmentList.map(async (appointment) => [
+        appointment.id,
+        await readAppointmentCallProgress(appointmentCallProgressKey(doctorId, appointment)),
+      ]));
+      setCallProgressByAppointment(Object.fromEntries(progressEntries));
       setAppointments(liveAppointmentList);
       setSelectedPatient(current => current ? liveAppointmentList.find(appt => appt.id === current.id) || current : current);
       restoreRunningConsultation(liveAppointmentList);
@@ -815,24 +854,26 @@ export default function DoctorDashboard({ navigation }) {
 
   // Web handleNextPatient: the patient hasn't come — move them to the "Next"
   // queue and show the following pending patient in the consent form.
-  const handleNextPatient = async () => {
-    if (!selectedPatient || actionBusy || activeSession?.appt || activeSession?.status === 'break') return;
+  const handleNextPatient = async (appointment) => {
+    const target = appointment?.id ? appointment : selectedPatient;
+    if (!target || actionBusy || activeSession?.appt || activeSession?.status === 'break') return;
     setActionBusy(true);
     let saved;
     try {
-      const response = await patchAppointment(selectedPatient, getSkipPayload(selectedPatient));
+      const response = await patchAppointment(target, getSkipPayload(target));
       saved = response.data?.appointment || response.data?.data;
     } catch (err) {
       showError(err, 'Unable to move patient to Next.');
       setActionBusy(false);
       return;
     }
-    const skippedId = selectedPatient.id;
+    const skippedId = target.id;
     skippedAppointmentIdsRef.current.add(skippedId);
     const next = pendingAppointments.find((appt) => appt.id !== skippedId) || null;
     const skippedPatient = saved
-      ? { ...formatAppointment({ ...saved, __appointmentSource: selectedPatient.appointmentSource }), status: 'skipped' }
-      : { ...selectedPatient, status: 'skipped' };
+      ? { ...formatAppointment({ ...saved, __appointmentSource: target.appointmentSource }), status: 'skipped' }
+      : { ...target, status: 'skipped', availability: { ...target.availability, status: 'unavailable', returnedAt: null } };
+    clearCallProgress(target);
     setAppointments((prev) => prev.map((a) => (a.id === skippedId ? skippedPatient : a)));
     setSelectedPatient(next);
     if (!next) {
@@ -946,6 +987,7 @@ export default function DoctorDashboard({ navigation }) {
         duration_ms: durationMs,
       }));
       setAppointments((prev) => prev.filter((a) => a.id !== appt.id));
+      clearCallProgress(appt);
       setActiveSession(null);
       setActiveTab('Completed');
       Alert.alert('Appointment completed', `${appt.name}'s consultation has been completed.`);
@@ -992,6 +1034,7 @@ export default function DoctorDashboard({ navigation }) {
         follow_up_date: formData.followUpDate || '',
       }));
       setAppointments((prev) => prev.filter((a) => a.id !== appt.id));
+      clearCallProgress(appt);
       setActiveSession(null);
       setCompleteAppointmentVisible(false);
       setActiveTab('Completed');
@@ -1029,13 +1072,19 @@ export default function DoctorDashboard({ navigation }) {
 
   // Web: navigate('/patient-sms', { callTargetId, autoStartCallType }).
   // Video Call: rings the patient straight from the dashboard — no chat
-  // screen. Once the call is placed the consultation starts too, so it shows
-  // under "Currently With" (Complete) when the call ends. If the
+  // screen. The consultation starts only after the patient answers, so an
+  // unanswered attempt stays in Pending. If the
   // patient is offline the server only notifies them; nothing else changes.
   const [activeCall, setActiveCall] = useState(null); // { mode, callData, callerId, connected }
   const [callStarting, setCallStarting] = useState(false);
   const activeCallRef = useRef(null);
   activeCallRef.current = activeCall;
+  const activeSessionRef = useRef(activeSession);
+  activeSessionRef.current = activeSession;
+  const beginConsultationRef = useRef(beginConsultation);
+  beginConsultationRef.current = beginConsultation;
+  const recordCallProgressRef = useRef(recordCallProgress);
+  recordCallProgressRef.current = recordCallProgress;
 
   // While the patient's phone rings, follow the call's server status every
   // 1.5s, as the web call screen does: declined / missed / cancelled closes
@@ -1044,35 +1093,66 @@ export default function DoctorDashboard({ navigation }) {
   useEffect(() => {
     if (!ringingCallId) return undefined;
     let stopped = false;
+    const finishUnansweredCall = (status = 'missed') => {
+      const current = activeCallRef.current;
+      if (!current || current.callData?.callId !== ringingCallId || current.connected) return;
+      stopped = true;
+      recordCallProgressRef.current(current.appointment, ringingCallId, 'unanswered');
+      ToastAndroid.show(endedCallMessage(status), ToastAndroid.LONG);
+      const closingCall = { ...current, closing: true };
+      activeCallRef.current = closingCall;
+      setActiveCall(closingCall);
+      setTimeout(() => {
+        if (activeCallRef.current?.callData?.callId === ringingCallId && activeCallRef.current?.closing) {
+          activeCallRef.current = null;
+          setActiveCall(null);
+        }
+      }, 1500);
+    };
     const check = async () => {
       const { phase, status } = await getDirectCallStatus(ringingCallId, activeCallRef.current?.callerId);
       if (stopped) return;
       if (phase === 'joinable') {
-        setActiveCall((call) => (call?.callData?.callId === ringingCallId ? { ...call, connected: true } : call));
+        const current = activeCallRef.current;
+        if (current?.callData?.callId === ringingCallId && !current.connected) {
+          const connectedCall = { ...current, connected: true };
+          activeCallRef.current = connectedCall;
+          setActiveCall(connectedCall);
+          recordCallProgressRef.current(current.appointment, ringingCallId, 'answered');
+          if (!activeSessionRef.current?.appt) await beginConsultationRef.current(current.appointment);
+        }
       } else if (phase === 'terminal') {
-        stopped = true;
-        ToastAndroid.show(endedCallMessage(status), ToastAndroid.LONG);
-        // Close through isOpen first: the call screen then leaves the Stream
-        // call and disconnects its client (unmounting it directly skipped
-        // that, and the next call started on a stale Stream session).
-        const isThisCall = (call) => call?.callData?.callId === ringingCallId;
-        setActiveCall((call) => (isThisCall(call) ? { ...call, closing: true } : call));
-        setTimeout(() => setActiveCall((call) => (isThisCall(call) && call.closing ? null : call)), 1500);
+        finishUnansweredCall(status);
       }
     };
     check();
     const timer = setInterval(check, 1500);
-    return () => { stopped = true; clearInterval(timer); };
+    const missedTimer = setTimeout(() => {
+      const current = activeCallRef.current;
+      if (!current || current.callData?.callId !== ringingCallId || current.connected) return;
+      endDirectCall(ringingCallId, current.callerId, 'cancelled').catch(() => {});
+      finishUnansweredCall('missed');
+    }, 65000);
+    return () => { stopped = true; clearInterval(timer); clearTimeout(missedTimer); };
   }, [ringingCallId]);
 
   // Hanging up: 'cancelled' while it still rings, 'ended' once connected (web endCall).
   const hangUpCall = (callId) => {
     const call = activeCallRef.current;
+    if (call && !call.connected) recordCallProgress(call.appointment, callId, 'unanswered');
     return endDirectCall(callId, call?.callerId, call?.connected ? 'ended' : 'cancelled');
+  };
+
+  const closeActiveCall = () => {
+    const call = activeCallRef.current;
+    if (call && !call.connected) recordCallProgress(call.appointment, call.callData?.callId, 'unanswered');
+    activeCallRef.current = null;
+    setActiveCall(null);
   };
 
   const handleCall = async (appt, mode) => {
     if (!appt?.patientId) return Alert.alert('Call', 'Patient account not found for this appointment.');
+    if (needsCallNext(appt)) return Alert.alert('Patient did not answer', 'Two call attempts were not answered. Use Next to continue the queue.');
     if (callStarting || activeCall) return undefined;
     const otherSession = activeSession?.appt && activeSession.appt.id !== appt.id;
     if (otherSession) {
@@ -1085,8 +1165,10 @@ export default function DoctorDashboard({ navigation }) {
         Alert.alert('Call request sent', result.message);
         return undefined;
       }
-      setActiveCall({ mode, callData: result.callData, callerId: result.callerId });
-      if (!activeSession?.appt) await beginConsultation(appt);
+      const nextCall = { mode, callData: result.callData, callerId: result.callerId, appointment: appt, connected: false };
+      recordCallProgress(appt, result.callData.callId, 'started');
+      activeCallRef.current = nextCall;
+      setActiveCall(nextCall);
     } catch (err) {
       console.warn('[doctor call] start failed', err?.response?.status, JSON.stringify(err?.response?.data || err?.message));
       showError(err, 'Could not start the call.');
@@ -1179,24 +1261,15 @@ export default function DoctorDashboard({ navigation }) {
   // Queue membership comes from the server status only (web parity).
   const liveAppointments = appointments;
   const cancelledQueue = sortByToken(cancelledToday.filter((appt) => appt.id !== activeAppt?.id));
-  const pendingAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'pending'));
+  const pendingAppointments = sortByToken(liveAppointments.filter(isDoctorPendingAppointment));
   const inProgressAppointments = [
     // The patient currently being seen stays on top.
     ...(activeAppt ? [activeAppt] : []),
-    ...sortByToken(liveAppointments.filter((appt) => ['confirmed', 'in-progress'].includes(appt.status) && appt.id !== activeAppt?.id)),
+    ...sortByToken(liveAppointments.filter((appt) => isDoctorInProgressAppointment(appt) && appt.id !== activeAppt?.id)),
   ];
-  // Full completed history: newest day first, normal queue order within a day.
-  const completedQueue = useMemo(() => {
-    const byDay = new Map();
-    completedAll.forEach((appt) => {
-      const key = formatLocalDateKey(appt.appointmentDate) || '';
-      if (!byDay.has(key)) byDay.set(key, []);
-      byDay.get(key).push(appt);
-    });
-    return [...byDay.keys()]
-      .sort((a, b) => String(b).localeCompare(String(a)))
-      .flatMap((key) => sortByToken(byDay.get(key)));
-  }, [completedAll]);
+  // The dashboard queue is for today. Older completed history belongs in the
+  // appointments/history screen and must not linger here as repeated cards.
+  const completedQueue = useMemo(() => sortByToken(completed), [completed]);
   // Patients moved aside with "Next" in the consent form.
   const skippedAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'skipped'));
   // Strict queue order: only the patient at the top of Pending (emergencies
@@ -1208,6 +1281,7 @@ export default function DoctorDashboard({ navigation }) {
   const isQueueTurnAvailable = (appt) => (completed.length > 0 || skippedAppointments.length > 0) && pendingIndexOf(appt) === 0;
   const canStartAppointment = (appt) =>
     Boolean(appt) &&
+    appt.availability?.status !== 'unavailable' &&
     ['pending', 'confirmed', 'skipped'].includes(appt.status) &&
     !activeAppt &&
     !onBreak &&
@@ -1224,6 +1298,9 @@ export default function DoctorDashboard({ navigation }) {
     if (activeSession?.appt || activeSession?.status === 'break') {
       return 'Finish the current consultation or break before starting another appointment.';
     }
+    if (appt?.availability?.status === 'unavailable') {
+      return 'Reception marked this patient unavailable. Start after reception marks the patient available.';
+    }
     const top = pendingAppointments[0];
     if (appt?.status === 'pending' && top && top.id !== appt.id) {
       return `${getTokenLabel(top)} (${top.name}) is first in the queue. Start it or move it to Next first.`;
@@ -1238,7 +1315,7 @@ export default function DoctorDashboard({ navigation }) {
   // "Up Next" on the break screen is the next patient to call: the top of
   // Pending. The patient already being seen and patients moved to Next
   // (they haven't come) are not "up next".
-  const nextPatient = pendingAppointments.find((appt) => appt.id !== activeAppt?.id) || null;
+  const nextPatient = pendingAppointments.find((appt) => appt.id !== activeAppt?.id && appt.availability?.status !== 'unavailable') || null;
   // A break pauses the queue, so there must be a queue to pause.
   const canTakeBreak = Boolean(activeAppt) || liveAppointments.length > 0;
   const totalToday = liveAppointments.length + completed.length;
@@ -1677,6 +1754,9 @@ export default function DoctorDashboard({ navigation }) {
                 onView={(appt) => setEditingAppointment(appt)}
                 onPrescription={(appt) => setPrescriptionAppointment(appt)}
                 onCall={handleCall}
+                onNext={handleNextPatient}
+                missedCallCount={missedCallCount(item)}
+                needsNext={item.availability?.status === 'unavailable' || needsCallNext(item)}
               />
             ))}</ResponsiveGrid>
           )}
@@ -1779,7 +1859,7 @@ export default function DoctorDashboard({ navigation }) {
           isOpen={!activeCall.closing}
           callData={activeCall.callData}
           currentUser={{ id: activeCall.callerId, role: 'counsellor' }}
-          onClose={() => setActiveCall(null)}
+          onClose={closeActiveCall}
           onEndCall={hangUpCall}
         />
       )}

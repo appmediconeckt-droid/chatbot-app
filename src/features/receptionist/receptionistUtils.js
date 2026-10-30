@@ -60,7 +60,8 @@ export const isOrphanedBooking = (row = {}) => {
 export const normalizeReceptionistAppointment = (row = {}) => {
   const patient = row.patient && typeof row.patient === 'object' ? row.patient : {};
   const symptoms = parseEmergencySymptoms(row.symptoms);
-  const timing = timingOf(row.timing || row.consultation_timing || row.consultationTiming);
+  const consultationTiming = timingOf(row.consultation_timing || row.consultationTiming);
+  const timing = { ...consultationTiming, ...timingOf(row.timing) };
   return {
     ...row,
     id: row.id ?? row._id,
@@ -74,6 +75,7 @@ export const normalizeReceptionistAppointment = (row = {}) => {
     token: row.token ?? row.token_number ?? row.tokenNumber,
     status: row.status || row.appointment_status,
     queueStatus: row.queueStatus || row.queue_status,
+    availability: row.availability || timing.availability || {},
     emergency: [true, 1, '1', 'true'].includes(row.emergency)
       || Boolean(row.emergency && typeof row.emergency === 'object')
       || row.priority === 'emergency' || symptoms.isEmergency,
@@ -119,6 +121,24 @@ export const canRecordVitals = (patient) => {
     && queueBucket(patient) !== 'in-progress'
     && !patient.consultation_started_at && !patient.consultation_ended_at
     && timings.every((t) => !t.startedAt && !t.started_at && !t.endedAt && !t.ended_at);
+};
+
+const closedAvailabilityStatuses = new Set(['completed', 'complete', 'done', 'cancelled', 'canceled', 'rejected', 'no_show']);
+const startedAvailabilityStatuses = new Set(['in_progress', 'in_consultation', 'consulting', 'serving']);
+
+export const canUpdatePatientAvailability = (patient) => {
+  if (!patient?.id || !['online', 'walkin'].includes(patient.source)) return false;
+  const status = vitalsStatus(patient.status || patient.appointment_status);
+  const queueStatus = vitalsStatus(patient.queueStatus || patient.queue_status);
+  const timing = {
+    ...timingOf(patient.consultation_timing || patient.consultationTiming),
+    ...timingOf(patient.timing),
+  };
+  return String(patient.date || patient.appointment_date || '').slice(0, 10) === indiaToday()
+    && Boolean(status || queueStatus)
+    && ![status, queueStatus].some((value) => closedAvailabilityStatuses.has(value) || startedAvailabilityStatuses.has(value))
+    && !timing.startedAt && !timing.started_at && !timing.endedAt && !timing.ended_at
+    && !patient.consultation_started_at && !patient.consultation_ended_at;
 };
 
 export const staffIdentity = (profile = {}) =>
@@ -221,14 +241,16 @@ export const sortQueue = (rows = []) => [...rows].sort((a, b) =>
 export const QUEUE_TABS = [
   { key: 'pending', label: 'Pending' },
   { key: 'in-progress', label: 'In Progress' },
-  { key: 'next', label: 'Next' },
   { key: 'completed', label: 'Completed' },
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
 export const groupQueue = (rows = []) => {
-  const groups = { pending: [], 'in-progress': [], next: [], completed: [], cancelled: [] };
-  dedupeRows(rows).forEach((row) => groups[queueBucket(row)].push(row));
+  const groups = { pending: [], 'in-progress': [], completed: [], cancelled: [] };
+  dedupeRows(rows).forEach((row) => {
+    const bucket = queueBucket(row);
+    groups[bucket === 'next' ? 'pending' : bucket].push(row);
+  });
   Object.keys(groups).forEach((name) => { groups[name] = sortQueue(groups[name]); });
   return groups;
 };

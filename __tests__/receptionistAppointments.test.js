@@ -1,4 +1,19 @@
 import { appointmentStatuses, canRecordVitals, emergencyReasonOf, indiaToday, normalizeReceptionistAppointment } from '../src/features/receptionist/receptionistUtils';
+import { isPrepaidAppointmentVisible } from '../src/utils/appointmentPaymentVisibility';
+
+test('hides card, UPI and wallet reservations until payment is verified', () => {
+  for (const payment_method of ['credit_card', 'debit_card', 'upi', 'wallet']) {
+    expect(isPrepaidAppointmentVisible({ payment_method, payment_status: 'pending' })).toBe(false);
+    expect(isPrepaidAppointmentVisible({ payment_method, payment_status: 'paid' })).toBe(true);
+  }
+  expect(isPrepaidAppointmentVisible({ payment_method: 'cash', payment_status: 'pending' })).toBe(true);
+});
+
+test('keeps a tokenized live-queue appointment visible across staff API shapes', () => {
+  expect(isPrepaidAppointmentVisible({
+    payment_method: 'upi', payment_status: 'pending', queueStatus: 'booked', token: 1,
+  })).toBe(true);
+});
 
 test.each([
   { status: 'confirmed', queueStatus: 'skipped' },

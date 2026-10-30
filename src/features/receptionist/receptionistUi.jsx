@@ -1,7 +1,7 @@
 // Shared look of the receptionist portal — the web portal's rec-* styles
 // (ReceptionistPortal.css) as React Native components.
 import React, { useState } from 'react';
-import { ActivityIndicator, Image, Keyboard, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Keyboard, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../components/TranslatedText';
@@ -9,9 +9,9 @@ import { ResponsiveGrid, useContentDimensions, useResponsiveLayout } from '../..
 import { toImageUri } from '../../utils/imageUri';
 import { API_BASE_URL } from '../../axiosConfig';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { QUEUE_TABS, appointmentStatuses, canCancelAppointment, canRecordVitals, clinicName, clockLabel, dateLabel, displayTime, emergencyReasonOf, patientKey, statusLabel } from './receptionistUtils';
+import { QUEUE_TABS, appointmentStatuses, canCancelAppointment, canRecordVitals, canUpdatePatientAvailability, clinicName, clockLabel, dateLabel, displayTime, emergencyReasonOf, patientKey, statusLabel } from './receptionistUtils';
 import { getDoctorMedicines, getDoctorTests, unpackConsultationNotes } from '../../utils/consultationDetails';
-import { saveStaffAppointmentVitals } from './receptionistApi';
+import { saveStaffAppointmentAvailability, saveStaffAppointmentVitals } from './receptionistApi';
 import { useReceptionistVitals } from './ReceptionistVitalsContext';
 import { formatPhoneNumber } from '../../utils/countryCodes';
 import VitalsForm, { VITAL_FIELDS, canonicalVitals, hasVital } from '../../components/VitalsForm';
@@ -290,7 +290,7 @@ export function StatTile({ title, value, icon, tone = 'blue', columns, fluid = f
   );
 }
 
-// The doctor's queue tabs: Pending / In Progress / Next / Completed / Cancelled.
+// Receptionist queue tabs. Patients moved aside by the doctor remain visible in Pending.
 export function QueueTabs({ active, counts, onChange }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabsScroll} contentContainerStyle={s.tabs}>
@@ -401,6 +401,58 @@ export function OptionSheet({ visible, title, options, value, onSelect, onClose 
 }
 
 // One booking as a card — the web's AppointmentTable row on a phone.
+function PatientAvailabilityControl({ patient }) {
+  const [saved, setSaved] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const current = saved && Date.parse(saved.updatedAt) > (Date.parse(patient.availability?.updatedAt) || 0)
+    ? saved : patient.availability || {};
+  if (!canUpdatePatientAvailability(patient)) return null;
+  const update = async (status) => {
+    if (busy || current.status === status) return;
+    setBusy(true);
+    try {
+      const result = await saveStaffAppointmentAvailability(patient, status);
+      setSaved(result.availability);
+      const message = status === 'unavailable'
+        ? 'Doctor notified. The doctor can move this patient to Next.'
+        : result.availability.returnedAt
+          ? 'Doctor notified. This patient now has priority after the current consultation.'
+          : 'Doctor notified that the patient is available.';
+      Alert.alert('Patient availability', message);
+    } catch (error) {
+      Alert.alert('Could not update availability', error?.response?.data?.message || error?.message || 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <View style={s.availabilityBlock}>
+      <Text style={s.availabilityLabel}>Patient availability</Text>
+      <View style={s.availabilityButtons}>
+        {['available', 'unavailable'].map((status) => {
+          const selected = current.status === status;
+          return (
+            <Pressable
+              key={status}
+              accessibilityRole="button"
+              accessibilityState={{ selected, disabled: busy || selected }}
+              disabled={busy || selected}
+              onPress={() => update(status)}
+              style={[s.availabilityButton, selected && (status === 'available' ? s.availabilityAvailable : s.availabilityUnavailable)]}
+            >
+              <View style={[s.availabilityDot, status === 'available' ? s.availableDot : s.unavailableDot]} />
+              <Text style={[s.availabilityButtonText, selected && (status === 'available' ? s.availableText : s.unavailableText)]}>
+                {status === 'available' ? 'Available' : 'Unavailable'}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {(busy || current.returnedAt) && <Text style={s.availabilityHint}>{busy ? 'Saving...' : 'Returned - priority next'}</Text>}
+    </View>
+  );
+}
+
 export function AppointmentRow({ row: appointment, clinics, onView, onCancel, cancelBusy }) {
   const { withSavedVitals } = useReceptionistVitals();
   const row = withSavedVitals(appointment);
@@ -455,6 +507,8 @@ export function AppointmentRow({ row: appointment, clinics, onView, onCancel, ca
           <Text style={[s.sourceTagText, walkIn && s.sourceTagTextWalkIn]}>{walkIn ? 'Walk-in' : 'Online'}</Text>
         </View>
       </View>
+
+      <PatientAvailabilityControl patient={row} />
 
       <View style={s.aptActions}>
         {canRecordVitals(row) && (
@@ -803,6 +857,19 @@ const s = StyleSheet.create({
   sourceTagWalkIn: { backgroundColor: '#FFF4E5' },
   sourceTagText: { fontSize: 10.5, fontWeight: '700', color: '#3975C7' },
   sourceTagTextWalkIn: { color: '#B54708' },
+  availabilityBlock: { marginTop: 12, padding: 10, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 11, backgroundColor: '#F8FAFC' },
+  availabilityLabel: { fontSize: 11.5, fontWeight: '700', color: REC.muted, marginBottom: 7 },
+  availabilityButtons: { flexDirection: 'row', gap: 6 },
+  availabilityButton: { flex: 1, minHeight: 34, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 9, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7 },
+  availabilityAvailable: { borderColor: '#A7D8C3', backgroundColor: '#E7F7EF' },
+  availabilityUnavailable: { borderColor: '#E7C58C', backgroundColor: '#FFF4DF' },
+  availabilityDot: { width: 6, height: 6, borderRadius: 3 },
+  availableDot: { backgroundColor: '#16704E' },
+  unavailableDot: { backgroundColor: '#99600E' },
+  availabilityButtonText: { fontSize: 11, fontWeight: '700', color: '#64748B' },
+  availableText: { color: '#16704E' },
+  unavailableText: { color: '#99600E' },
+  availabilityHint: { marginTop: 6, fontSize: 10.5, color: REC.muted },
   aptActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF2F5' },
   dialogFrame: { height: '100%', maxHeight: '100%', justifyContent: 'flex-end' },
   dialogOverlay: { justifyContent: 'flex-start' },

@@ -4,8 +4,10 @@ import RazorpayCheckout from 'react-native-razorpay';
 import api from '../src/axiosConfig';
 import {
   NOT_COMPLETED,
-  TEST_UPI_FAILURE,
-  TEST_UPI_SUCCESS,
+  SLOT_RELEASED,
+  normalizeProviderPaymentOptions,
+  paymentDisplayMethodsForBooking,
+  paymentMethodGroups,
   razorpayOffersUpi,
   isOnlinePayment,
   isWalletPayment,
@@ -59,16 +61,24 @@ describe('appointment payments (web providerPayments port)', () => {
     await act(async () => { create(<Probe />); });
     expect(api.get).toHaveBeenCalledWith('/api/payments/providers/doc-1/methods');
     expect(state.loading).toBe(false);
-    // The wallet is offered next to the doctor's online methods, before cash.
-    expect(state.methods.map((m) => m.id)).toEqual(['credit_card', 'upi', 'wallet', 'cash']);
+    // Web order: the doctor's methods, then the platform wallet.
+    expect(state.methods.map((m) => m.id)).toEqual(['credit_card', 'upi', 'cash', 'wallet']);
+
+    await act(async () => { state.refresh(); });
+    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(state.methods.map((m) => m.id)).toEqual(['credit_card', 'upi', 'cash', 'wallet']);
   });
 
-  it('always offers the wallet, for every doctor', async () => {
+  it('always offers the platform wallet for every doctor', async () => {
     let state;
     function Probe() { state = useProviderPaymentOptions('doc-1'); return null; }
-    api.get.mockResolvedValue({ data: { methods: ['cash'] } });
+    api.get.mockResolvedValue({ data: { methods: ['wallet', 'cash'] } });
     await act(async () => { create(<Probe />); });
     expect(state.methods.map((m) => m.id)).toEqual(['wallet', 'cash']);
+
+    api.get.mockResolvedValue({ data: { methods: ['cash'] } });
+    await act(async () => { create(<Probe />); });
+    expect(state.methods.map((m) => m.id)).toEqual(['cash', 'wallet']);
 
     api.get.mockResolvedValue({ data: { methods: [] } });
     await act(async () => { create(<Probe />); });
@@ -95,12 +105,44 @@ describe('appointment payments (web providerPayments port)', () => {
     let state;
     function Probe() { state = useProviderPaymentOptions('doc-1'); return null; }
     await act(async () => { create(<Probe />); });
-    // Cards aren't ready, but the wallet still is.
     expect(state.methods.map((m) => m.id)).toEqual(['wallet']);
     expect(state.unavailable).toEqual([
       { id: 'credit_card', label: 'Credit Card', reason: 'The provider needs to complete card payment setup.' },
       { id: 'debit_card', label: 'Debit Card', reason: 'The provider needs to complete card payment setup.' },
     ]);
+  });
+
+  it('lists unfinished methods disabled with the reason, cards grouped (web ProviderPaymentChoices)', () => {
+    const options = normalizeProviderPaymentOptions({
+      mode: 'test',
+      methods: ['cash'],
+      configuredMethods: ['credit_card', 'debit_card', 'upi', 'cash'],
+      unavailableMethods: {
+        credit_card: 'The provider needs to complete card payment setup.',
+        debit_card: 'The provider needs to complete card payment setup.',
+        upi: 'The provider needs to complete UPI payment setup.',
+        wallet: 'Old restriction',
+      },
+    });
+    expect(options.mode).toBe('test');
+    expect(options.methods.map((m) => m.id)).toEqual(['cash', 'wallet']);
+    expect(options.displayMethods.map((m) => [m.id, m.unavailableReason])).toEqual([
+      ['credit_card', 'The provider needs to complete card payment setup.'],
+      ['debit_card', 'The provider needs to complete card payment setup.'],
+      ['upi', 'The provider needs to complete UPI payment setup.'],
+      ['cash', ''],
+      ['wallet', ''],
+    ]);
+    const groups = paymentMethodGroups(options.displayMethods);
+    expect(groups.map((g) => g.id)).toEqual(['card', 'upi', 'cash', 'wallet']);
+    expect(groups[0]).toMatchObject({ label: 'Credit / Debit Card', methods: [{ id: 'credit_card' }, { id: 'debit_card' }] });
+  });
+
+  it('disables the wallet for non-INR bookings', () => {
+    const options = normalizeProviderPaymentOptions({ methods: ['credit_card'], currency: 'usd' });
+    expect(options.methods.map((m) => m.id)).toEqual(['credit_card']);
+    expect(options.displayMethods.find((m) => m.id === 'wallet').unavailableReason).toMatch(/INR/);
+    expect(paymentDisplayMethodsForBooking([{ id: 'wallet', unavailableReason: '' }], 'USD')[0].unavailableReason).toMatch(/INR/);
   });
 
   it('books the payment through Razorpay checkout and verifies it', async () => {
@@ -123,10 +165,35 @@ describe('appointment payments (web providerPayments port)', () => {
     api.post.mockResolvedValue({ data: order });
     RazorpayCheckout.open.mockRejectedValue({ code: 0, description: 'Payment Cancelled' });
     await expect(payForAppointment('apt-1', 'credit_card')).rejects.toMatchObject({ message: NOT_COMPLETED, notPaid: true, cancelled: true });
-    expect(api.post).toHaveBeenCalledTimes(1);
+    // Then the web's release check (this answer neither paid nor released).
+    expect(api.post).toHaveBeenCalledTimes(2);
+    expect(api.post).toHaveBeenLastCalledWith('/api/payments/appointments/apt-1/release');
 
     RazorpayCheckout.open.mockRejectedValue({ code: 2, description: 'Card declined' });
     await expect(payForAppointment('apt-1', 'credit_card')).rejects.toMatchObject({ message: 'Card declined', notPaid: true, cancelled: false });
+  });
+
+  it('releases the slot on the server after a failed payment, like the web', async () => {
+    api.post.mockImplementation((url) => Promise.resolve({ data: url.endsWith('/release') ? { released: true } : order }));
+    RazorpayCheckout.open.mockRejectedValue({ code: 0, description: 'Payment Cancelled' });
+    await expect(payForAppointment('apt-1', 'credit_card')).rejects.toMatchObject({ message: SLOT_RELEASED, slotReleased: true, cancelled: true });
+
+    RazorpayCheckout.open.mockRejectedValue({ code: 2, description: 'Card declined' });
+    await expect(payForAppointment('apt-1', 'credit_card')).rejects.toMatchObject({ message: 'Card declined', slotReleased: true });
+  });
+
+  it('counts the booking as paid when the release check finds the payment', async () => {
+    api.post.mockImplementation((url) => Promise.resolve({ data: url.endsWith('/release') ? { paid: true, status: 'paid' } : order }));
+    RazorpayCheckout.open.mockRejectedValue({ code: 0, description: 'Payment Cancelled' });
+    await expect(payForAppointment('apt-1', 'credit_card')).resolves.toMatchObject({ paid: true });
+  });
+
+  it('keeps the original error when the release check fails', async () => {
+    api.post.mockImplementation((url) => (url.endsWith('/release') ? Promise.reject(new Error('Not Found')) : Promise.resolve({ data: order })));
+    RazorpayCheckout.open.mockRejectedValue({ code: 2, description: 'Card declined' });
+    const error = await payForAppointment('apt-1', 'credit_card').catch((e) => e);
+    expect(error).toMatchObject({ message: 'Card declined', notPaid: true });
+    expect(error.slotReleased).toBeUndefined();
   });
 
   it('turns the raw no_payment_methods JSON from Razorpay into a sentence', async () => {
@@ -177,40 +244,32 @@ describe('appointment payments (web providerPayments port)', () => {
     });
   });
 
-  describe('test UPI (Razorpay TEST account with UPI turned off)', () => {
+  describe('test UPI availability', () => {
     const testOrder = { ...order, key_id: 'rzp_test_abc', method: 'upi' };
     const preferences = (upi) => Promise.resolve({ json: () => Promise.resolve({ methods: { upi, upi_type: { collect: 0, intent: 0 } } }) });
     beforeEach(() => { global.fetch = jest.fn(() => preferences(false)); api.post.mockResolvedValue({ data: testOrder }); });
 
-    it('books with success@razorpay without opening checkout or charging', async () => {
-      const askTestUpi = jest.fn(async () => TEST_UPI_SUCCESS);
-      await expect(payForAppointment('apt-1', 'upi', {}, { askTestUpi })).resolves.toEqual({ simulated: true, method: 'upi', upiId: TEST_UPI_SUCCESS });
+    it('does not report a fake booking when the test account has UPI disabled', async () => {
+      await expect(payForAppointment('apt-1', 'upi')).rejects.toMatchObject({
+        message: 'UPI is not enabled for the Razorpay test account. Enable test UPI or choose another payment method.',
+        notPaid: true,
+      });
       expect(global.fetch).toHaveBeenCalledWith('https://api.razorpay.com/v1/preferences?key_id=rzp_test_abc&currency=INR');
       expect(RazorpayCheckout.open).not.toHaveBeenCalled();
-      expect(api.post).toHaveBeenCalledTimes(1);
+      expect(api.post).toHaveBeenCalledTimes(2);
+      expect(api.post).toHaveBeenLastCalledWith('/api/payments/appointments/apt-1/release');
     });
 
-    it('fails with failure@razorpay and when the box is closed, so the booking is released', async () => {
-      await expect(payForAppointment('apt-1', 'upi', {}, { askTestUpi: async () => TEST_UPI_FAILURE }))
-        .rejects.toMatchObject({ notPaid: true, cancelled: false });
-      await expect(payForAppointment('apt-1', 'upi', {}, { askTestUpi: async () => null }))
-        .rejects.toMatchObject({ message: NOT_COMPLETED, notPaid: true, cancelled: true });
-    });
-
-    it('uses the real checkout when Razorpay offers UPI, for a live key, or without askTestUpi', async () => {
+    it('uses the real checkout when Razorpay offers UPI or for a live key', async () => {
       RazorpayCheckout.open.mockRejectedValue({ code: 0, description: 'Payment Cancelled' });
-      const askTestUpi = jest.fn(async () => TEST_UPI_SUCCESS);
 
       global.fetch = jest.fn(() => preferences(true));
-      await payForAppointment('apt-1', 'upi', {}, { askTestUpi }).catch(() => {});
+      await payForAppointment('apt-1', 'upi').catch(() => {});
       api.post.mockResolvedValue({ data: { ...testOrder, key_id: 'rzp_live_abc' } });
       global.fetch = jest.fn(() => preferences(false));
-      await payForAppointment('apt-1', 'upi', {}, { askTestUpi }).catch(() => {});
-      api.post.mockResolvedValue({ data: testOrder });
       await payForAppointment('apt-1', 'upi').catch(() => {});
 
-      expect(askTestUpi).not.toHaveBeenCalled();
-      expect(RazorpayCheckout.open).toHaveBeenCalledTimes(3);
+      expect(RazorpayCheckout.open).toHaveBeenCalledTimes(2);
     });
 
     it('reads UPI availability from Razorpay preferences, assuming yes when unreadable', async () => {

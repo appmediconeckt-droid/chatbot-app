@@ -11,7 +11,7 @@
 // The wallet skips checkout: /internal with { method: 'wallet' } debits the
 // patient's Humaeli wallet and records the payment in the doctor's earnings
 // (the same call the web makes).
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { NativeModules, TurboModuleRegistry } from 'react-native';
 import RazorpayCheckout from 'react-native-razorpay';
 import api from '../axiosConfig';
@@ -32,11 +32,71 @@ export const isWalletPayment = (method) => method === 'wallet';
 // Paid before the booking counts: in Razorpay checkout or from the wallet.
 export const isOnlinePayment = (method) => GATEWAY_METHODS.includes(method) || isWalletPayment(method);
 
+const WALLET_INR_ONLY = 'Wallet payments currently support INR appointments only.';
+
 // In-clinic and video consultations use the same doctor-configured methods.
 // Only currency compatibility applies: the app wallet stores INR.
 export const paymentMethodsForBooking = (methods = [], currency = 'INR') => methods.filter(
-  (method) => !isWalletPayment(method?.id) || currency === 'INR',
+  (method) => !isWalletPayment(method?.id) || String(currency || 'INR').toUpperCase() === 'INR',
 );
+
+// The same list for display: every method the doctor turned on, with the
+// ones that can't be used yet carrying `unavailableReason` (shown disabled).
+export const paymentDisplayMethodsForBooking = (methods = [], currency = 'INR') => methods.map(
+  (method) => (isWalletPayment(method?.id) && String(currency || 'INR').toUpperCase() !== 'INR'
+    ? { ...method, unavailableReason: WALLET_INR_ONLY }
+    : method),
+);
+
+// Credit and debit cards share one "Credit / Debit Card" row with a card-type
+// choice inside it; every other method is its own row (web
+// ProviderPaymentChoices). Insurance is never offered for online booking.
+export const paymentMethodGroups = (displayMethods = []) => {
+  const cards = displayMethods.filter((method) => ['credit_card', 'debit_card'].includes(method.id));
+  return [
+    ...(cards.length ? [{ id: 'card', label: 'Credit / Debit Card', icon: 'card-outline', methods: cards }] : []),
+    ...displayMethods
+      .filter((method) => !['credit_card', 'debit_card', 'insurance'].includes(method.id))
+      .map((method) => ({ ...method, methods: [method] })),
+  ];
+};
+
+const methodIds = (values) => (Array.isArray(values) ? values : []).flatMap((value) => {
+  const id = typeof value === 'string' ? value : value?.id || value?.method;
+  return id === 'online' ? ['credit_card', 'debit_card'] : LABELS[id] ? [id] : [];
+});
+
+// Port of web normalizeProviderPaymentOptions. `methods` are the usable ones;
+// `displayMethods` also lists the methods the doctor turned on whose setup
+// isn't finished (e.g. card / UPI without a receiving account), each with the
+// server's reason, so the sheet can show them disabled. Wallet is a platform
+// method, always offered for INR whatever the doctor accepts.
+export function normalizeProviderPaymentOptions(data = {}) {
+  const currency = String(data?.currency || 'INR').toUpperCase();
+  const available = new Set(methodIds(data?.methods));
+  const configured = new Set([...methodIds(data?.configuredMethods), ...available, 'wallet']);
+  const unavailableMethods = { ...(data?.unavailableMethods || {}) };
+  if (currency !== 'INR') {
+    unavailableMethods.wallet = WALLET_INR_ONLY;
+  } else {
+    // Older responses may still carry a wallet restriction; it never applies.
+    delete unavailableMethods.wallet;
+    available.add('wallet');
+  }
+  const choices = (ids) => Array.from(ids, (id) => ({
+    id, label: LABELS[id][0], icon: LABELS[id][1], unavailableReason: String(unavailableMethods[id] || ''),
+  }));
+  const displayMethods = choices(configured);
+  return {
+    mode: data?.mode === 'test' ? 'test' : data?.mode === 'live' ? 'live' : '',
+    currency,
+    methods: choices([...available].filter((id) => !unavailableMethods[id])),
+    displayMethods,
+    unavailable: displayMethods
+      .filter((method) => method.unavailableReason)
+      .map(({ id, label, unavailableReason }) => ({ id, label, reason: unavailableReason })),
+  };
+}
 
 export const NOT_COMPLETED = 'Payment was not completed.';
 
@@ -63,38 +123,39 @@ export const paymentCheckoutDisplay = (method) => {
   };
 };
 
-// { methods: [{ id, label, icon }], unavailable: [{ id, label, reason }], loading, error }
-// for one doctor. `unavailable` are methods the doctor turned on but whose
-// setup isn't finished (e.g. no receiving bank account for cards yet).
+const EMPTY_OPTIONS = { methods: [], displayMethods: [], unavailable: [], mode: '', currency: 'INR' };
+
+// { methods, displayMethods, unavailable: [{ id, label, reason }], mode,
+// currency, loading, error } for one doctor (normalizeProviderPaymentOptions).
 export function useProviderPaymentOptions(providerId, enabled = true) {
-  const [state, setState] = useState({ methods: [], unavailable: [], loading: true, error: '' });
+  const [state, setState] = useState({ ...EMPTY_OPTIONS, loading: true, error: '' });
+  const [reloadKey, setReloadKey] = useState(0);
+  const loadedProviderRef = useRef('');
+  const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
   useEffect(() => {
     let active = true;
-    setState({ methods: [], unavailable: [], loading: Boolean(providerId && enabled), error: '' });
-    if (!providerId || !enabled) return undefined;
+    const providerKey = String(providerId || '');
+    const refreshingCurrentProvider = loadedProviderRef.current === providerKey;
+    if (!providerId || !enabled) {
+      loadedProviderRef.current = '';
+      setState({ ...EMPTY_OPTIONS, loading: false, error: '' });
+      return undefined;
+    }
+    setState((previous) => refreshingCurrentProvider
+      ? { ...previous, error: '' }
+      : { ...EMPTY_OPTIONS, loading: true, error: '' });
     api.get(`/api/payments/providers/${encodeURIComponent(String(providerId))}/methods`)
       .then(({ data }) => {
         if (!active) return;
-        const ids = (data?.methods || []).filter((method) => LABELS[method]);
-        // The wallet is the platform's own method, not a doctor setting: every
-        // doctor accepts it, whatever else they take (even cash only). It goes
-        // before cash unless the server already lists it.
-        if (!ids.includes('wallet')) {
-          const cashAt = ids.indexOf('cash');
-          ids.splice(cashAt === -1 ? ids.length : cashAt, 0, 'wallet');
-        }
-        const methods = ids.map((method) => ({ id: method, label: LABELS[method][0], icon: LABELS[method][1] }));
-        const unavailable = Object.entries(data?.unavailableMethods || {})
-          .filter(([method]) => LABELS[method] && !methods.some((m) => m.id === method))
-          .map(([method, reason]) => ({ id: method, label: LABELS[method][0], reason: String(reason || 'Not set up yet.') }));
-        setState({ methods, unavailable, loading: false, error: '' });
+        loadedProviderRef.current = providerKey;
+        setState({ ...normalizeProviderPaymentOptions(data), loading: false, error: '' });
       })
       .catch(() => {
-        if (active) setState({ methods: [], unavailable: [], loading: false, error: 'Payment options could not be loaded. Please reopen this booking to try again.' });
-      });
+        if (active) setState({ ...EMPTY_OPTIONS, loading: false, error: 'Payment options could not be loaded. Please reopen this booking to try again.' });
+    });
     return () => { active = false; };
-  }, [providerId, enabled]);
-  return state;
+  }, [providerId, enabled, reloadKey]);
+  return { ...state, refresh };
 }
 
 // { balance, loading, error, reload, setBalance } — the patient's wallet
@@ -126,8 +187,9 @@ export function useWalletBalance(enabled = true) {
   };
 }
 
-// The server refused the payment method itself (the doctor's saved methods
-// don't include it), e.g. "Payment method not supported".
+// The server refused the payment method itself, e.g. "Payment method not
+// supported". This can also mean the current payment environment cannot use
+// that method; it is not necessarily a doctor preference.
 export const methodRefused = (error) => /method.*(not|isn't|un)\s*(supported|accepted|allowed|available)|unsupported.*method/i
   .test(String(error?.response?.data?.message || error?.response?.data?.error || ''));
 
@@ -170,20 +232,35 @@ export async function razorpayOffersUpi(keyId) {
   }
 }
 
-// Test UPI IDs, the same as Razorpay's test mode.
-export const TEST_UPI_SUCCESS = 'success@razorpay';
-export const TEST_UPI_FAILURE = 'failure@razorpay';
-
 // Pays for a booked appointment. Resolves with the server's paid record;
 // rejects with a message to show — with `notPaid: true` when nothing was paid,
 // so the caller can release the reserved booking.
 // prefill: { name, email, contact } for the checkout form.
-// askTestUpi: testing only (debug builds). When the key is a TEST key and the
-// Razorpay account has UPI turned off, UPI can't be tested in checkout at all;
-// this is called instead and resolves to the UPI ID typed in, or null when
-// closed. Resolves `{ simulated: true }` — nothing is charged or recorded as
-// paid on the server.
-export async function payForAppointment(appointmentId, method, prefill = {}, { askTestUpi } = {}) {
+// Like the web, any failure asks the server to release the booking
+// (POST /release): the server first checks for a captured / authorized
+// payment — `paid` means it went through after all. `slotReleased: true` on
+// the error means the reservation is gone and the slot is free again.
+export const SLOT_RELEASED = 'Payment was not completed. Your selected slot is available again. Please retry payment.';
+
+export async function payForAppointment(appointmentId, method, prefill = {}) {
+  try {
+    return await performAppointmentPayment(appointmentId, method, prefill);
+  } catch (error) {
+    try {
+      const { data } = await api.post(`/api/payments/appointments/${encodeURIComponent(String(appointmentId))}/release`);
+      if (data?.paid) return data;
+      if (data?.released) {
+        error.slotReleased = true;
+        // Keep the patient's own reason (low wallet, declined card); a
+        // cancelled checkout gets the web's sentence.
+        if (error.cancelled || !error.message || error.message === NOT_COMPLETED) error.message = SLOT_RELEASED;
+      }
+    } catch { /* Payment status unknown: keep the original error. */ }
+    throw error;
+  }
+}
+
+async function performAppointmentPayment(appointmentId, method, prefill) {
   if (isWalletPayment(method)) return payFromWallet(appointmentId);
   let order;
   try {
@@ -197,11 +274,8 @@ export async function payForAppointment(appointmentId, method, prefill = {}, { a
   const testMode = String(order.key_id).startsWith('rzp_test_');
   console.log('[payment] Razorpay', testMode ? 'TEST mode' : 'LIVE mode', order.method || method);
 
-  if ((order.method || method) === 'upi' && testMode && askTestUpi && !(await razorpayOffersUpi(order.key_id))) {
-    const upiId = await askTestUpi();
-    if (!upiId) throw notPaidError(NOT_COMPLETED, true);
-    if (String(upiId).trim().toLowerCase() === TEST_UPI_FAILURE) throw notPaidError('UPI payment failed (test UPI ID failure@razorpay).');
-    return { simulated: true, method: 'upi', upiId: String(upiId).trim() };
+  if ((order.method || method) === 'upi' && testMode && !(await razorpayOffersUpi(order.key_id))) {
+    throw notPaidError('UPI is not enabled for the Razorpay test account. Enable test UPI or choose another payment method.');
   }
 
   // open() always exists in JS; without the native module it never settles.
@@ -268,7 +342,7 @@ async function payFromWallet(appointmentId) {
       throw notPaidError(insufficient
         ? 'Your wallet balance is too low for this appointment. Add money to your wallet or choose another payment method.'
         : methodRefused(error)
-          ? "This doctor can't take wallet payments yet. Please choose another payment method."
+          ? 'Wallet payment is not available in the current payment environment. Refresh the payment options or choose another method.'
           : apiError(error, 'Wallet payment could not be completed.'));
     }
     try {

@@ -14,12 +14,12 @@ import { colors, typography, createDoctorStyles, doctorGradient, gradientDirecti
 import { getConsultationModeInfo, getTokenLabel } from '../api/doctorAppointments';
 import { MODE_STYLES } from './AppointmentCard';
 import { VITAL_FIELDS, canonicalVitals, hasVital } from '../../../../components/VitalsForm';
+import { formatTime12 } from '../../../../utils/appointmentTime';
 
 const getInitials = (name = '') =>
   name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'NA';
 
-const formatClock = (ms) =>
-  new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const formatClock = (ms) => formatTime12(ms);
 
 const pad = (n) => String(n).padStart(2, '0');
 export const formatDuration = (ms) => {
@@ -53,6 +53,7 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
   const onBreak = session.status === 'break';
   const disabled = onBreak || busy;
   const mode = getConsultationModeInfo(patient);
+  const modeLabel = mode.label.replace(/\s+Consultation$/i, '');
   const modeStyle = MODE_STYLES[mode.key];
   const vitals = canonicalVitals(patient.vitals);
   const recordedVitals = VITAL_FIELDS.filter(([key]) => hasVital(vitals[key]));
@@ -66,7 +67,7 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
         </View>
         <View style={s.activePill}>
           <View style={[s.activeDot, paused && s.pausedDot]} />
-          <Text style={s.activeText}>{onBreak ? 'ON BREAK' : paused ? 'PAUSED' : 'ACTIVE CONSULTATION'}</Text>
+          <Text style={s.activeText}>{onBreak ? 'ON BREAK' : paused ? 'PAUSED' : 'ACTIVE'}</Text>
         </View>
       </View>
 
@@ -87,7 +88,7 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
       <View style={s.chips}>
         <View style={[s.modeChip, { backgroundColor: modeStyle.bg }]}>
           <AppIcon name={mode.icon} size={12} strokeWidth={2.2} color={modeStyle.text} />
-          <Text style={[s.chipText, { color: modeStyle.text }]}>{mode.label}</Text>
+          <Text style={[s.chipText, { color: modeStyle.text }]}>{modeLabel}</Text>
         </View>
         <View style={s.chip}><Text style={s.chipText}>{getTokenLabel(patient)}</Text></View>
       </View>

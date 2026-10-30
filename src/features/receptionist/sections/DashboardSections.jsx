@@ -22,13 +22,11 @@ const allRows = (data) => dedupeRows([...(data?.currentPatients || []), ...(data
 const EMPTY_TEXT = {
   pending: ['No patients waiting', 'New arrivals and bookings will appear in the queue here.'],
   'in-progress': ['No checkup in progress', 'The patient being examined will appear here when the doctor starts a checkup.'],
-  next: ['Nobody moved to Next', 'Patients the doctor moves to Next will wait here.'],
   completed: ['No completed visits yet', "Today's finished checkups will appear here."],
   cancelled: ['No cancelled appointments', 'Cancelled and no-show bookings for today will appear here.'],
 };
 
-// Today's queue with the doctor's tabs (Pending / In Progress / Next /
-// Completed / Cancelled), emergencies first and then by token.
+// Today's receptionist queue, emergencies first and then by token.
 function QueueCard({ data, clinics, onView, title = "Today's Queue", subtitle, right }) {
   const groups = useMemo(() => groupQueue(allRows(data)), [data]);
   const counts = Object.fromEntries(Object.entries(groups).map(([name, rows]) => [name, rows.length]));

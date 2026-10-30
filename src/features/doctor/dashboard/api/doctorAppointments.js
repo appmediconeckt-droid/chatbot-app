@@ -3,12 +3,14 @@
 // the top of Dashboard/DoctorDashboard.jsx). Same endpoints, params, status
 // normalization and payloads, so both clients read and write identically.
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isPrepaidAppointmentVisible } from '../../../../utils/appointmentPaymentVisibility';
 import axiosInstance from '../../../../axiosConfig';
 import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
 import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
 import { getAppointmentVitals } from '../../../../utils/appointmentVitals';
 import { consultationData } from '../../../../utils/consultationData';
 import { formatPhoneNumber } from '../../../../utils/countryCodes';
+import { formatTime12 } from '../../../../utils/appointmentTime';
 
 export const pickFirst = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== '');
@@ -48,7 +50,8 @@ const COLLECTION_KEYS = new Set([
   'data', 'appointments', 'online', 'online_appointments', 'onlineAppointments',
   'walkin', 'walk_in', 'walk_in_appointments', 'walkin_appointments',
   'walkInAppointments', 'walkinAppointments', 'walkins', 'followups',
-  'followUps', 'follow_ups', 'result', 'results',
+  'followUps', 'follow_ups', 'result', 'results', 'queue', 'waitingQueue',
+  'waiting_queue', 'records', 'items', 'docs',
 ]);
 
 export const normalizeApiList = (payload) => {
@@ -94,43 +97,8 @@ export const getAppointmentSource = (appointment) => {
   return rawType.includes('walk') || hasWalkInIdentity ? 'walkin' : 'online';
 };
 
-const PREPAID_METHODS = new Set(['credit_card', 'debit_card', 'card', 'upi', 'wallet']);
-const PAID_STATUSES = new Set([
-  'paid', 'captured', 'authorized', 'authorised', 'verified',
-  'success', 'successful', 'succeeded', 'completed',
-]);
-
 export const isAppointmentVisibleToDoctor = (appointment) => {
-  if (getAppointmentSource(appointment) === 'walkin') return true;
-
-  const appointmentStatus = String(pickFirst(
-    appointment?.appointment_status, appointment?.appointmentStatus,
-    appointment?.queue_status, appointment?.queueStatus, appointment?.status, '',
-  )).trim().toLowerCase();
-  if (['completed', 'complete', 'cancelled', 'canceled', 'no-show', 'no_show'].includes(appointmentStatus)) return true;
-
-  const method = String(pickFirst(
-    appointment?.payment_method, appointment?.paymentMethod,
-    appointment?.payment?.method, appointment?.payment?.payment_method,
-    '',
-  )).trim().toLowerCase();
-  const fee = Number(pickFirst(
-    appointment?.fee, appointment?.amount, appointment?.consultation_fee,
-    appointment?.consultationFee, appointment?.payment?.amount, 0,
-  ));
-  if (!PREPAID_METHODS.has(method) || !(fee > 0)) return true;
-
-  const paymentStatus = String(pickFirst(
-    appointment?.payment_status, appointment?.paymentStatus,
-    appointment?.payment?.status, appointment?.payment?.payment_status,
-    appointment?.transaction?.status, '',
-  )).trim().toLowerCase();
-  const paymentId = pickFirst(
-    appointment?.razorpay_payment_id, appointment?.razorpayPaymentId,
-    appointment?.payment_id, appointment?.paymentId,
-    appointment?.payment?.razorpay_payment_id, appointment?.payment?.razorpayPaymentId,
-  );
-  return PAID_STATUSES.has(paymentStatus) || Boolean(paymentId);
+  return isPrepaidAppointmentVisible(appointment);
 };
 
 // Online and walk-in tables can share numeric IDs — dedupe per source only.
@@ -141,7 +109,10 @@ const mergeAppointmentLists = (...lists) => {
     const id = pickFirst(a.id, a._id, a.appointment_id, a.appointmentId,
       a.walkin_appointment_id, a.walkinAppointmentId, a.walkin_id, a.walkinId);
     if (id === undefined) withoutId.push(a);
-    else records.set(`${getAppointmentSource(a)}:${id}`, a);
+    else {
+      const key = `${getAppointmentSource(a)}:${id}`;
+      records.set(key, { ...(records.get(key) || {}), ...a });
+    }
   });
   return [...records.values(), ...withoutId];
 };
@@ -152,12 +123,17 @@ const mergeAppointmentLists = (...lists) => {
 export const loadDoctorAppointmentFeed = async (doctorId) => {
   const params = { doctor_id: doctorId };
   await loadWalkinQueueState();
-  const [online, walkins, completed, cancelled] = await Promise.all([
+  const [online, walkins, completed, cancelled, doctorQueue] = await Promise.all([
     axiosInstance.get('/api/appointments', { params }),
     axiosInstance.get('/api/walkin-appointments', { params }),
     axiosInstance.get('/api/appointments', { params: { ...params, appointment_status: 'completed' } }),
     // Optional: an older server without this filter must not break the queue.
     axiosInstance.get('/api/appointments', { params: { ...params, appointment_status: 'cancelled' } })
+      .catch(() => ({ data: [] })),
+    // The live queue endpoint is the authoritative source for today's booked
+    // doctor appointments. Older deployments do not expose it, so keep the
+    // generic appointment feed as a safe fallback.
+    axiosInstance.get('/api/appointments/doctor/queue', { params })
       .catch(() => ({ data: [] })),
   ]);
   // Drop rows left behind by deleted patient accounts so they never reach the
@@ -167,6 +143,7 @@ export const loadDoctorAppointmentFeed = async (doctorId) => {
     normalizeApiList(completed.data),
     normalizeApiList(cancelled.data),
     normalizeApiList(walkins.data).map((item) => withWalkinQueueState({ ...item, __appointmentSource: 'walkin' })),
+    normalizeApiList(doctorQueue.data),
   ).filter((a) => !isPatientAccountDeleted(a) && isAppointmentVisibleToDoctor(a));
 };
 
@@ -432,8 +409,8 @@ const getAppointmentDateTime = (a, { endOfDayFallback = true } = {}) => {
 // Booked slot time, as the web dashboard reads it for queue order and pending
 // expiry: the appointment's day plus its booked time field — a delayed
 // estimated start does not move it. No booked time → end of that day.
-const getBookedDateTime = (a) => {
-  const dateKey = formatLocalDateKey(getAppointmentDateValue(a));
+const getBookedDateTime = (a, { endOfDayFallback = true } = {}) => {
+  const dateKey = formatLocalDateKey(getAppointmentDayValue(a));
   if (!dateKey) return null;
   const timeValue = pickFirst(
     a?.appointment_time, a?.appointmentTime, a?.time, a?.scheduled_time, a?.scheduledTime,
@@ -450,7 +427,7 @@ const getBookedDateTime = (a) => {
     const d = new Date(bookedDate);
     if (isValidDate(d)) return d;
   }
-  return parseTimeOnDate(dateKey, '23:59:59');
+  return endOfDayFallback ? parseTimeOnDate(dateKey, '23:59:59') : null;
 };
 
 // Emergency request from a patient (web: priority === 'emergency'). It jumps
@@ -595,6 +572,14 @@ export const isAppointmentStartTimeReached = (appt, nowMs = Date.now()) => {
   return day.getTime() + minutes * 60000 <= nowMs;
 };
 
+export const getElapsedAppointmentDelay = (appt, nowMs = Date.now()) => {
+  const raw = appt?.__raw || appt || {};
+  if (getAppointmentSource(raw) === 'walkin' || isEmergencyAppointment(raw)) return 0;
+  const start = getBookedDateTime(raw, { endOfDayFallback: false });
+  if (!start) return 0;
+  return Math.max(0, Math.floor((nowMs - start.getTime()) / 60000));
+};
+
 // Web "Next" in the consent form: online appointments keep their status and
 // get queue_status 'skipped'; walk-ins take appointment_status (web parity).
 export const getSkipPayload = (appt) =>
@@ -629,8 +614,8 @@ export const isConsultationStartOpen = (appt, nowMs = Date.now()) => {
 
 // An emergency token keeps its slot time; only a slotless emergency reads 'Emergency'.
 const formatAppointmentTime = (a) => {
-  const start = resolveScheduledStart(a);
-  if (start) return start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const start = getBookedDateTime(a, { endOfDayFallback: false });
+  if (start) return formatTime12(start);
   if (isEmergencyAppointment(a)) return 'Emergency';
   return getAppointmentTimeValue(a) || 'Today';
 };
@@ -652,6 +637,10 @@ export const formatAppointment = (a, forcedStatus) => {
     a?.id, a?._id, a?.appointment_id, a?.appointmentId,
     a?.walkin_appointment_id, a?.walkinAppointmentId, a?.walkin_id, a?.walkinId,
   );
+  let consultationTiming = a?.consultation_timing || a?.consultationTiming || {};
+  if (typeof consultationTiming === 'string') {
+    try { consultationTiming = JSON.parse(consultationTiming) || {}; } catch { consultationTiming = {}; }
+  }
   return {
     __raw: a,
     __appointmentSource: appointmentSource,
@@ -677,6 +666,7 @@ export const formatAppointment = (a, forcedStatus) => {
     ),
     scheduledTime: formatAppointmentTime(a),
     status: normalizeAppointmentStatus(a, forcedStatus),
+    availability: a?.availability || consultationTiming.availability || {},
     phone: formatPhoneNumber(pickFirst(
       a?.patient_phone, a?.patientPhone, a?.phone, a?.mobile, a?.phone_number, a?.phoneNumber,
       patient?.phone, patient?.mobile, patient?.phone_number, patient?.phoneNumber, 'N/A',
@@ -734,6 +724,9 @@ export const compareByToken = (a, b) => {
     const cb = Date.parse(pickFirst(b?.__raw?.created_at, b?.__raw?.createdAt, b?.created_at, b?.createdAt)) || 0;
     if (ca !== cb) return ca - cb;
   }
+  const returnedA = a?.availability?.status === 'available' && Boolean(a?.availability?.returnedAt);
+  const returnedB = b?.availability?.status === 'available' && Boolean(b?.availability?.returnedAt);
+  if (returnedA !== returnedB) return returnedA ? -1 : 1;
   const timeDiff = getStartMs(a) - getStartMs(b);
   if (timeDiff) return timeDiff;
   const ta = getTokenNumber(a);
@@ -743,6 +736,12 @@ export const compareByToken = (a, b) => {
 };
 
 export const sortByToken = (list = []) => [...list].sort(compareByToken);
+
+export const isDoctorPendingAppointment = (appointment) =>
+  ['pending', 'confirmed'].includes(appointment?.status);
+
+export const isDoctorInProgressAppointment = (appointment) =>
+  appointment?.status === 'in-progress';
 
 // Readable label only — never a code cut from the database id (that produced
 // meaningless labels like "Pa58" for appointments without a token).
@@ -793,7 +792,7 @@ export const getCallWindow = (appt, nowMs = Date.now()) => {
 export const isAppointmentCallWindowOpen = (appt, nowMs = Date.now()) => getCallWindow(appt, nowMs).open;
 
 export const formatClockTime = (date) =>
-  date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  formatTime12(date);
 
 // ---- writes ---------------------------------------------------------------
 

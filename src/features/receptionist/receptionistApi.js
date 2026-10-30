@@ -11,10 +11,13 @@
 //   PATCH /api/auth/update/:id                      edit own name / phone / photo
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance, { API_BASE_URL, TUNNEL_HEADERS } from '../../axiosConfig';
+import { isPrepaidAppointmentVisible } from '../../utils/appointmentPaymentVisibility';
 import { appointmentStatuses, dedupeRows, indiaToday, isOrphanedBooking, normalizeReceptionistAppointment } from './receptionistUtils';
 
 // Normalised rows minus bookings orphaned by a deleted patient account.
-const liveRows = (rows) => (rows || []).filter((row) => !isOrphanedBooking(row)).map(normalizeReceptionistAppointment);
+const liveRows = (rows) => (rows || [])
+  .filter((row) => !isOrphanedBooking(row) && isPrepaidAppointmentVisible(row))
+  .map(normalizeReceptionistAppointment);
 
 export const fetchMe = async () => {
   const { data } = await axiosInstance.get('/api/auth/me');
@@ -111,6 +114,18 @@ export const saveStaffAppointmentVitals = async (row, vitals) => {
     throw new Error('The server did not confirm saved vitals. Please try again.');
   }
   return response;
+};
+
+export const saveStaffAppointmentAvailability = async (row, availability) => {
+  const response = await axiosInstance.patch(`/api/staff/appointments/${encodeURIComponent(row.id)}/availability`, {
+    source: row.source || 'online',
+    availability,
+  });
+  const saved = response.data?.availability;
+  if (response.data?.success === false || !saved || typeof saved !== 'object' || Array.isArray(saved)) {
+    throw new Error('The server did not confirm patient availability. Please try again.');
+  }
+  return { availability: saved, message: response.data?.message || '' };
 };
 
 export const fetchPatientHistory = async (params) => {

@@ -42,19 +42,19 @@ const TONES = {
 
 const FALLBACK = {
   id: 'fallback-clinic',
-  name: 'Clinic Profile',
-  subtitle: 'Healthcare Facility',
-  address: 'Address not available',
-  fullAddress: 'Address not available',
+  name: '',
+  subtitle: '',
+  address: '',
+  fullAddress: '',
   phone: '',
   email: '',
   website: '',
   image: DEFAULT_CLINIC_IMAGE,
   mapUrl: '',
-  about: 'Clinic information is not available.',
-  mission: 'Mission information is not available.',
+  about: '',
+  mission: '',
   specialties: [],
-  stats: { beds: 0, emergency: '24/7', rating: 0, ratingCount: 0 },
+  stats: { beds: 0, emergency: '—', rating: 0, ratingCount: 0 },
   raw: {},
 };
 
@@ -138,7 +138,7 @@ const normalizeClinic = (clinic, index = 0) => {
     specialties,
     stats: {
       beds: pickFirst(clinic.beds_count, clinic.bed_count, clinic.total_beds, 0),
-      emergency: pickFirst(clinic.emergency_status, clinic.emergency, '24/7'),
+      emergency: pickFirst(clinic.emergency_status, clinic.emergency, '—'),
       // GET /api/clinics: the average of patients' clinic ratings and how many.
       rating: Number(pickFirst(clinic.rating, clinic.patient_rating, 0)) || 0,
       ratingCount: Number(pickFirst(clinic.ratingCount, clinic.rating_count, 0)) || 0,
@@ -360,6 +360,8 @@ export default function ClinicPageScreen({ onBack }) {
   };
 
   const website = clinic.website && (clinic.website.startsWith('http') ? clinic.website : `https://${clinic.website}`);
+  const emergencyHours = pickFirst(clinic.raw?.emergency_hours, clinic.raw?.emergencyHours, clinic.raw?.emergency_status, clinic.raw?.emergency);
+  const opdHours = pickFirst(clinic.raw?.opd_timings, clinic.raw?.opdTimings, clinic.raw?.opening_hours, clinic.raw?.openingHours, clinic.raw?.timings);
 
   // "+ Add" in the header opens the Add Clinic form (same screen as Settings →
   // Clinic) right here; closing it reloads the list so a new clinic shows up.
@@ -406,6 +408,42 @@ export default function ClinicPageScreen({ onBack }) {
     fee: clinicFeeOf(clinic.raw),
   });
 
+  const renderScreenHeader = () => (
+    <View style={s.header}>
+      <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
+        <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
+      </Pressable>
+      <Text style={s.title}>Clinic</Text>
+      <Pressable
+        onPress={() => setAddingClinic(true)}
+        style={({ pressed }) => [s.addClinicButton, pressed && s.addClinicButtonPressed]}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="Add clinic"
+      >
+        <AppIcon name="plus" size={16} color="#FFFFFF" strokeWidth={2.6} />
+        <Text style={s.addClinicText}>Add</Text>
+      </Pressable>
+    </View>
+  );
+
+  if (!clinics.length) {
+    return (
+      <View style={s.screen}>
+        {renderScreenHeader()}
+        <View style={s.noClinicState}>
+          {status === 'loading' ? (
+            <ActivityIndicator color="#0D9488" />
+          ) : (
+            <View style={s.noClinicIcon}><AppIcon name="pin" size={24} color="#0D9488" /></View>
+          )}
+          <Text style={s.noClinicTitle}>{status === 'loading' ? 'Loading clinics…' : 'No clinic added'}</Text>
+          <Text style={s.noClinicText}>{error || 'Add a clinic to view its live profile and appointment data.'}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={s.screen}>
       <DeleteClinicModal
@@ -417,22 +455,7 @@ export default function ClinicPageScreen({ onBack }) {
         onCancel={() => setConfirmDeleteOpen(false)}
         onConfirm={performDeleteClinic}
       />
-      <View style={s.header}>
-        <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
-          <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
-        </Pressable>
-        <Text style={s.title}>Clinic</Text>
-        <Pressable
-          onPress={() => setAddingClinic(true)}
-          style={({ pressed }) => [s.addClinicButton, pressed && s.addClinicButtonPressed]}
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel="Add clinic"
-        >
-          <AppIcon name="plus" size={16} color="#FFFFFF" strokeWidth={2.6} />
-          <Text style={s.addClinicText}>Add</Text>
-        </Pressable>
-      </View>
+      {renderScreenHeader()}
       <ScrollView
         contentContainerStyle={s.content}
         showsVerticalScrollIndicator={false}
@@ -477,8 +500,7 @@ export default function ClinicPageScreen({ onBack }) {
           )}
           <View style={s.heroContent}>
             <View style={s.badgeRow}>
-              <Text style={s.openBadge}>Open Now</Text>
-              <Text style={s.typeBadge}>{clinic.subtitle}</Text>
+              {!!clinic.subtitle && <Text style={s.typeBadge}>{clinic.subtitle}</Text>}
             </View>
             <Text translate={false} style={s.heroTitle}>{clinic.name}</Text>
             <View style={s.heroMetaRow}>
@@ -598,17 +620,25 @@ export default function ClinicPageScreen({ onBack }) {
             {!!clinic.phone && <ContactRow icon="call-outline" label="Phone" value={clinic.phone} onPress={() => openUrl(`tel:${clinic.phone}`)} action="Call" />}
             {!!clinic.email && <ContactRow icon="mail-outline" label="Email" value={clinic.email} onPress={() => openUrl(`mailto:${clinic.email}`)} action="Email" />}
             {!!website && <ContactRow icon="globe-outline" label="Website" value={clinic.website} onPress={() => openUrl(website)} action="Open" />}
-            <Text style={s.subTitle}>Hours</Text>
-            <View style={s.hoursCard}>
-              <View style={s.hoursRow}>
-                <View style={s.hoursLabelRow}><Ionicons name="pulse-outline" size={14} color="#E11D48" /><Text style={s.muted}>Emergency</Text></View>
-                <Text style={s.strong}>24/7 Open</Text>
-              </View>
-              <View style={[s.hoursRow, s.hoursRowDivider]}>
-                <View style={s.hoursLabelRow}><Ionicons name="time-outline" size={14} color="#0D9488" /><Text style={s.muted}>OPD Timings</Text></View>
-                <Text style={s.strong}>8:00 AM - 8:00 PM</Text>
-              </View>
-            </View>
+            {(emergencyHours || opdHours) && (
+              <>
+                <Text style={s.subTitle}>Hours</Text>
+                <View style={s.hoursCard}>
+                  {!!emergencyHours && (
+                    <View style={s.hoursRow}>
+                      <View style={s.hoursLabelRow}><Ionicons name="pulse-outline" size={14} color="#E11D48" /><Text style={s.muted}>Emergency</Text></View>
+                      <Text translate={false} style={s.strong}>{String(emergencyHours)}</Text>
+                    </View>
+                  )}
+                  {!!opdHours && (
+                    <View style={[s.hoursRow, emergencyHours && s.hoursRowDivider]}>
+                      <View style={s.hoursLabelRow}><Ionicons name="time-outline" size={14} color="#0D9488" /><Text style={s.muted}>OPD Timings</Text></View>
+                      <Text translate={false} style={s.strong}>{String(opdHours)}</Text>
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
           </Panel>
         )}
 
@@ -831,6 +861,10 @@ const s = createDoctorStyles({
   addClinicText: { fontSize: 13.5, fontWeight: '800', color: '#FFFFFF' },
   content: { padding: 12, paddingBottom: 32 },
   error: { fontSize: 13, color: colors.red, marginBottom: 10 },
+  noClinicState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, gap: 10 },
+  noClinicIcon: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E6FBF8' },
+  noClinicTitle: { fontSize: 18, fontWeight: '800', color: '#101828', textAlign: 'center' },
+  noClinicText: { fontSize: 13.5, lineHeight: 20, color: '#667085', textAlign: 'center' },
   hero: { height: 210, borderRadius: 14, overflow: 'hidden', justifyContent: 'flex-end' },
   heroImage: { borderRadius: 14 },
   heroOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(8, 47, 45, 0.55)' },

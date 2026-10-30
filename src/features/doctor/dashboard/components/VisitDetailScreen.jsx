@@ -20,6 +20,10 @@ const isSet = (value) => {
   return Boolean(v) && v !== 'N/A';
 };
 
+// A phone like "+91 98765 43210" never wraps between the country code and the
+// number: spaces become non-breaking spaces, hyphens non-breaking hyphens.
+const unbreakable = (value) => (isSet(value) ? String(value).trim().replace(/\s+/g, ' ').replace(/-/g, '‑') : null);
+
 const titleCase = (value) => String(value || '')
   .replace(/[_-]+/g, ' ')
   .replace(/\b\w/g, (c) => c.toUpperCase())
@@ -83,7 +87,7 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
           <View style={s.flex}>
             <Text translate={false} style={s.name}>{patient.name}</Text>
             <Text translate={false} style={s.meta}>
-              {[patient.age !== 'N/A' ? `${patient.age} yrs` : null, patient.gender, patient.bloodGroup, patient.phone].filter(isSet).join(' • ')}
+              {[patient.age !== 'N/A' ? `${patient.age} yrs` : null, patient.gender, patient.bloodGroup, unbreakable(patient.phone)].filter(isSet).join(' • ')}
             </Text>
           </View>
           {isSet(record.tokenNumber) && (
