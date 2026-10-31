@@ -99,7 +99,9 @@ const mapAppointment = (raw) => {
     time: appt.scheduledTime,
     isEmergency: appt.isEmergency,
     createdMs: Date.parse(pickFirst(raw?.created_at, raw?.createdAt)) || 0,
-    rawDate: formatLocalDateKey(appt.appointmentDate),
+    // Filter and label by the booked day: a pending booking from yesterday
+    // must not show up under today's date.
+    rawDate: formatLocalDateKey(appt.bookedDate || appt.appointmentDate),
     status: STATUS_LABEL[appt.status] || 'Pending',
     reason: appt.issue,
     type: getVisitType(appt, raw),

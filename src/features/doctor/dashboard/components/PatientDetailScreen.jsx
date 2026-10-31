@@ -1,6 +1,6 @@
 // Patient visit history — port of the web Patient Details "records" view
 // (PatientAppointmentDetails/PatientDetailsPage.jsx): patient banner, Visit
-// History (date, time, problem, doctor, follow-up) with 10-per-page
+// History (date, time, problem, follow-up) with 10-per-page
 // pagination, and View Details per visit.
 import React, { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -32,7 +32,8 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
   ].filter(Boolean).join(' • ') || 'Age & gender not recorded';
 
   const details = [
-    { icon: 'phone', label: 'Phone', value: isKnown(patient.phone) ? patient.phone : 'Not added' },
+    // Full row: a number with its country code doesn't fit half the card.
+    { icon: 'phone', label: 'Phone', value: isKnown(patient.phone) ? patient.phone : 'Not added', wide: true },
     { emoji: '❤', label: 'Blood Group', value: isKnown(patient.bloodGroup) ? patient.bloodGroup : 'Not recorded' },
     { icon: 'file', label: 'Total Visits', value: String(records.length) },
     { icon: 'calendar', label: 'Last Visit', value: isKnown(patient.lastVisit) ? patient.lastVisit : '—' },
@@ -60,7 +61,7 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
 
           <View style={s.detailGrid}>
             {details.map((item) => (
-              <View key={item.label} style={s.detailCell}>
+              <View key={item.label} style={[s.detailCell, item.wide && s.detailCellWide]}>
                 <View style={s.detailTile}>
                   <View style={s.detailIcon}>
                     {item.icon
@@ -69,7 +70,14 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
                   </View>
                   <View style={s.flex}>
                     <Text style={s.detailLabel}>{item.label}</Text>
-                    <Text translate={false} style={s.detailValue} numberOfLines={1}>{item.value}</Text>
+                    <Text
+                      translate={false}
+                      selectable={item.wide}
+                      style={[s.detailValue, item.wide && s.detailValueWide]}
+                      numberOfLines={item.wide ? 2 : 1}
+                    >
+                      {item.value}
+                    </Text>
                   </View>
                 </View>
               </View>
@@ -112,8 +120,8 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
                     <Text style={s.summaryChip}>{record.tests.length} {record.tests.length === 1 ? 'test' : 'tests'}</Text>
                   )}
                 </View>
+                {/* No doctor name: every visit here is with the doctor reading it. */}
                 <View style={s.visitMeta}>
-                  <Text translate={false} style={s.doctor} numberOfLines={1}>👨‍⚕️ {record.doctor}</Text>
                   <Text translate={false} style={[s.followUp, record.followUp === 'Not required' && s.followUpNone]}>Follow-up: {record.followUp}</Text>
                 </View>
                 <View style={s.viewRow}>
@@ -160,11 +168,13 @@ const s = createDoctorStyles({
   // tiles line up regardless of value length.
   detailGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 14, marginHorizontal: -4 },
   detailCell: { width: '50%', padding: 4 },
+  detailCellWide: { width: '100%' },
   detailTile: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 9 },
   detailIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#E6FAF6', alignItems: 'center', justifyContent: 'center' },
   detailEmoji: { fontSize: 13, color: '#E11D48' },
   detailLabel: { fontSize: 10.5, fontWeight: '700', color: '#667085', textTransform: 'uppercase', letterSpacing: 0.3 },
   detailValue: { fontSize: 13.5, fontWeight: '800', color: '#17243A', marginTop: 1 },
+  detailValueWide: { flexShrink: 1, fontSize: 14, lineHeight: 19 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 18, marginBottom: 10 },
   section: { fontSize: 16, fontWeight: '800', color: '#17243A' },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 36 },
@@ -177,7 +187,6 @@ const s = createDoctorStyles({
   timeText: { fontSize: 12.5, color: '#667085' },
   problem: { fontSize: 14.5, fontWeight: '700', color: '#17243A', marginTop: 10 },
   visitMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8 },
-  doctor: { flex: 1, fontSize: 12.5, color: '#475467' },
   followUp: { fontSize: 11.5, fontWeight: '800', color: '#B45309', backgroundColor: '#FEF3C7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   followUpNone: { color: '#667085', backgroundColor: '#F1F5F9' },
   summary: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },

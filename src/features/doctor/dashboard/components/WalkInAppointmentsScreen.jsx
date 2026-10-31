@@ -19,7 +19,7 @@ import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { stripEmergencyTag } from '../../../../utils/emergencyTag';
 import { KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../components/common/KeyboardSheet';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
-import { buildInternationalPhoneNumber, formatPhoneNumber, getPhoneLengthLabel, isValidMobileNumber } from '../../../../utils/countryCodes';
+import { buildInternationalPhoneNumber, formatPhoneNumber, isValidMobileNumber, phoneNumberError } from '../../../../utils/countryCodes';
 
 const STATUS_META = {
   waiting: { label: 'Waiting', color: '#C85B20', bg: '#FFF3E9' },
@@ -210,7 +210,7 @@ export default function WalkInAppointmentsScreen({ onBack }) {
     const next = {};
     if (!form.name.trim()) next.name = 'Name is required';
     if (!form.phone.trim()) next.phone = 'Phone number is required';
-    else if (!isValidMobileNumber(form.phone, form.phoneCountryCode)) next.phone = `Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}`;
+    else if (!isValidMobileNumber(form.phone, form.phoneCountryCode)) next.phone = phoneNumberError(form.phone, form.phoneCountryCode);
     if (!form.problem.trim()) next.problem = 'Problem description is required';
     setErrors(next);
     return Object.keys(next).length === 0;

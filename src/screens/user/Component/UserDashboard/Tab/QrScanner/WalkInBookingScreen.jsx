@@ -13,7 +13,7 @@ import api, { API_BASE_URL } from '../../../../../../axiosConfig';
 import { toImageUri } from '../../../../../../utils/imageUri';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
-import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidMobileNumber, splitInternationalPhoneNumber } from '../../../../../../utils/countryCodes';
+import { buildInternationalPhoneNumber, isValidMobileNumber, phoneNumberError, splitInternationalPhoneNumber } from '../../../../../../utils/countryCodes';
 
 const API = `${API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
 const GENDERS = [
@@ -331,7 +331,7 @@ export default function WalkInBookingScreen({
   const validate = () => {
     const next = {};
     if (!form.patientName.trim()) next.patientName = 'Patient name is required';
-    if (!isValidMobileNumber(form.contactNumber, form.phoneCountryCode)) next.contactNumber = `Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}`;
+    if (!isValidMobileNumber(form.contactNumber, form.phoneCountryCode)) next.contactNumber = phoneNumberError(form.contactNumber, form.phoneCountryCode);
     if (!form.problem.trim()) next.problem = 'Please describe the problem';
     if (!form.dateOfBirth) next.dateOfBirth = 'Date of birth is required';
     if (!form.location.trim()) next.location = 'Location or address is required';

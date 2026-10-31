@@ -117,13 +117,153 @@ const mergeAppointmentLists = (...lists) => {
   return [...records.values(), ...withoutId];
 };
 
+// Appointment rows sent to a doctor carry the patient's anonymous name (the
+// server hides the full name from providers), while the receptionist sees the
+// real one. The doctor's Patients tab reads account names from
+// /api/auth/users; the queue uses the same names so an app patient shows by
+// their real name. Cached for a minute because the queue polls often.
+let accountNamesCache = { at: 0, names: null };
+const loadPatientAccountNames = async () => {
+  if (accountNamesCache.names && Date.now() - accountNamesCache.at < 60000) return accountNamesCache.names;
+  const res = await axiosInstance.get('/api/auth/users', { params: { role: 'patient' } });
+  const list = res?.data?.users || res?.data?.data || [];
+  const names = new Map((Array.isArray(list) ? list : [])
+    .map((u) => [String(pickFirst(u?._id, u?.id, '')), {
+      name: String(pickFirst(u?.fullName, u?.full_name, u?.name, '')).trim(),
+      phone: String(pickFirst(u?.phoneNumber, u?.phoneNum, u?.phone_number, u?.phone, u?.mobile, u?.contactNumber, u?.contact_number, '')).trim(),
+      phoneCountryCode: String(pickFirst(u?.phoneCountryCode, u?.phone_country_code, u?.countryCode, '')).trim(),
+    }])
+    .filter(([id, account]) => id && (account.name || account.phone)));
+  accountNamesCache = { at: Date.now(), names };
+  return names;
+};
+
+// The patient's account id on an appointment — never the appointment's own id.
+const patientAccountIdOf = (a) => {
+  const fromObject = [a?.patient, a?.patient_id, a?.patientId, a?.patient_details, a?.patientData, a?.patient_data, a?.user]
+    .filter((value) => value && typeof value === 'object')
+    .map((value) => pickFirst(value._id, value.id, value.user_id, value.userId))
+    .find((value) => value !== undefined);
+  const plain = (value) => (value && typeof value !== 'object' ? value : undefined);
+  const id = pickFirst(fromObject, plain(a?.patient_id), plain(a?.patientId), a?.patient_user_id, a?.patientUserId, plain(a?.patient));
+  return id === undefined ? '' : String(id);
+};
+
+// Walk-ins have no account, and QR bookings keep the name given at booking
+// (same rule as the Patients tab).
+const withAccountName = (a, names) => {
+  if (!names?.size || getAppointmentSource(a) === 'walkin') return a;
+  if (String(pickFirst(a?.booking_source, a?.bookingSource, '')).toLowerCase() === 'qr') return a;
+  const account = names.get(patientAccountIdOf(a));
+  if (!account) return a;
+  // Older cached/test values can still be a plain name string.
+  if (typeof account === 'string') return account ? { ...a, __accountName: account } : a;
+  return {
+    ...a,
+    __accountName: account.name || undefined,
+    __accountPhone: /\d/.test(account.phone) ? account.phone : undefined,
+    __accountPhoneCountryCode: account.phoneCountryCode || undefined,
+  };
+};
+
+// ---- Real patient names in doctor notifications ----------------------------
+// Pushes and in-app notifications name the patient by their anonymous name
+// ("hjsk requested an appointment…"). The appointment they are about carries
+// the patient's account, whose real name the queue already shows, so the
+// anonymous name is swapped for it. appointmentId → { real, shown: [names] }.
+let notificationNamesCache = { at: 0, map: null };
+const loadAppointmentPatientNames = async ({ fresh = false } = {}) => {
+  if (!fresh && notificationNamesCache.map && Date.now() - notificationNamesCache.at < 60000) return notificationNamesCache.map;
+  const [res, names] = await Promise.all([axiosInstance.get('/api/appointments'), loadPatientAccountNames()]);
+  const rows = Array.isArray(res?.data) ? res.data : res?.data?.appointments || res?.data?.data || [];
+  const map = new Map();
+  rows.forEach((a) => {
+    const id = String(pickFirst(a?._id, a?.id, ''));
+    const real = withAccountName(a, names).__accountName;
+    if (!id || !real) return;
+    const patient = a?.patient && typeof a.patient === 'object' ? a.patient : {};
+    const shown = [a?.patient_name, a?.patientName, patient.anonymous, patient.anonName, patient.fullName, patient.name]
+      .map((value) => String(value || '').trim())
+      .filter((value) => value.length > 1 && value !== real);
+    map.set(id, { real, shown: [...new Set(shown)] });
+  });
+  notificationNamesCache = { at: Date.now(), map };
+  return map;
+};
+
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// `text` with each name in entry.shown, as a whole word, replaced by entry.real.
+export const withRealPatientName = (text, entry) => {
+  if (!text || !entry?.real) return text;
+  return entry.shown.reduce(
+    (out, name) => out.replace(new RegExp(`(^|[^A-Za-z0-9])${escapeRegExp(name)}(?=$|[^A-Za-z0-9])`, 'g'), `$1${entry.real}`),
+    String(text),
+  );
+};
+
+// { title, body } of the notification about `appointmentId`, naming the
+// patient by their real name; unchanged when that can't be worked out.
+export const realNameNotificationText = async (appointmentId, { title, body }) => {
+  if (!appointmentId) return { title, body };
+  try {
+    const key = String(appointmentId);
+    let entry = (await loadAppointmentPatientNames()).get(key);
+    // A push arrives right after booking, before the cached list has it
+    // (refetched at most every few seconds, not once per notification).
+    if (!entry && Date.now() - notificationNamesCache.at > 5000) {
+      entry = (await loadAppointmentPatientNames({ fresh: true })).get(key);
+    }
+    return { title: withRealPatientName(title, entry), body: withRealPatientName(body, entry) };
+  } catch {
+    return { title, body };
+  }
+};
+
+// The desk's view of today's bookings (GET /api/staff/appointments, open to
+// the doctor too) carries each patient's phone number and real name, which
+// doctor-facing rows can leave out — the consent form showed "N/A" for a
+// patient who gave a number. appointment id → { phone, name }. The endpoint
+// pages at 50 at most.
+const loadStaffContacts = async (doctorId) => {
+  const today = formatLocalDateKey(new Date());
+  const params = { doctor_id: doctorId, from: today, to: today, limit: 50 };
+  const first = await axiosInstance.get('/api/staff/appointments', { params });
+  const rows = [...(first?.data?.appointments || [])];
+  const pages = Math.min(5, Math.ceil((Number(first?.data?.total) || 0) / 50));
+  for (let page = 2; page <= pages; page += 1) {
+    const next = await axiosInstance.get('/api/staff/appointments', { params: { ...params, page } });
+    rows.push(...(next?.data?.appointments || []));
+  }
+  return new Map(rows
+    .map((row) => [String(pickFirst(row?.id, row?._id, '')), {
+      phone: String(pickFirst(row?.phoneNumber, row?.phoneNum, row?.patientPhone, row?.patient_phone, row?.phone_number, row?.phone, row?.mobile, '')).trim(),
+      name: String(pickFirst(row?.patientName, row?.patient_name, row?.name, '')).trim(),
+    }])
+    .filter(([id]) => id));
+};
+
+// Phone (and, failing the account lookup, the real name) from the desk's view.
+// Walk-ins and QR bookings keep the name given at booking.
+const withStaffContact = (a, contacts) => {
+  const contact = contacts?.get(String(pickFirst(a?._id, a?.id, '')));
+  if (!contact) return a;
+  const keepsTypedName = getAppointmentSource(a) === 'walkin'
+    || String(pickFirst(a?.booking_source, a?.bookingSource, '')).toLowerCase() === 'qr';
+  return {
+    ...a,
+    __staffPhone: /\d/.test(contact.phone) ? contact.phone : undefined,
+    __staffName: !keepsTypedName && contact.name && contact.name !== 'Patient' ? contact.name : undefined,
+  };
+};
+
 // Same four requests as the web feed (appointmentFeed.js): the server now
 // marks unattended appointments cancelled / no-show itself, and those rows
 // come back through the appointment_status=cancelled list.
 export const loadDoctorAppointmentFeed = async (doctorId) => {
   const params = { doctor_id: doctorId };
   await loadWalkinQueueState();
-  const [online, walkins, completed, cancelled, doctorQueue] = await Promise.all([
+  const [online, walkins, completed, cancelled, doctorQueue, accountNames, staffContacts] = await Promise.all([
     axiosInstance.get('/api/appointments', { params }),
     axiosInstance.get('/api/walkin-appointments', { params }),
     axiosInstance.get('/api/appointments', { params: { ...params, appointment_status: 'completed' } }),
@@ -135,6 +275,10 @@ export const loadDoctorAppointmentFeed = async (doctorId) => {
     // generic appointment feed as a safe fallback.
     axiosInstance.get('/api/appointments/doctor/queue', { params })
       .catch(() => ({ data: [] })),
+    // Optional: without it the queue still loads, with the names it was sent.
+    loadPatientAccountNames().catch(() => null),
+    // Optional too: an older server keeps this route to the reception desk.
+    loadStaffContacts(doctorId).catch(() => null),
   ]);
   // Drop rows left behind by deleted patient accounts so they never reach the
   // queue, the overview counts or the appointments list as "Unknown".
@@ -144,7 +288,8 @@ export const loadDoctorAppointmentFeed = async (doctorId) => {
     normalizeApiList(cancelled.data),
     normalizeApiList(walkins.data).map((item) => withWalkinQueueState({ ...item, __appointmentSource: 'walkin' })),
     normalizeApiList(doctorQueue.data),
-  ).filter((a) => !isPatientAccountDeleted(a) && isAppointmentVisibleToDoctor(a));
+  ).filter((a) => !isPatientAccountDeleted(a) && isAppointmentVisibleToDoctor(a))
+    .map((a) => withStaffContact(withAccountName(a, accountNames), staffContacts));
 };
 
 // The doctor's patient rating. The server keeps each one on its appointment
@@ -623,7 +768,12 @@ const formatAppointmentTime = (a) => {
 export const formatAppointment = (a, forcedStatus) => {
   a = consultationData(a);
   const vitals = getAppointmentVitals(a);
-  const patient = a?.patient || a?.patientData || a?.user || {};
+  // Patient data is populated under different keys across queue, appointment,
+  // staff and legacy responses. Merge every object so a phone nested in
+  // `patient_id` or `patient_details` is not lost in the consent form.
+  const patient = [a?.user, a?.patientData, a?.patient_data, a?.patient_details, a?.patient_id, a?.patient]
+    .filter((value) => value && typeof value === 'object')
+    .reduce((merged, value) => ({ ...merged, ...value }), {});
   const appointmentSource = getAppointmentSource(a);
   const followUp = a?.followup || a?.follow_up || a?.followUp || {};
   const rawFollowUpDate = pickFirst(
@@ -651,10 +801,13 @@ export const formatAppointment = (a, forcedStatus) => {
     appointmentType: appointmentSource === 'walkin' ? 'Walk-in' : 'Online',
     consultationMode: String(pickFirst(a?.consultation_mode, a?.consultationMode, a?.mode, 'in-clinic')).toLowerCase(),
     appointmentDate: getAppointmentDateValue(a),
+    // The day it was booked for. appointmentDate prefers the server's moving
+    // estimate, which carries an unfinished booking forward to "today".
+    bookedDate: getAppointmentDayValue(a),
     delayMinutes: Number(pickFirst(a?.delay_minutes, a?.delayMinutes, 0)),
     delayReason: pickFirst(a?.delay_reason, a?.delayReason),
     name: pickFirst(
-      a?.patient_name, a?.patientName, a?.walkin_patient_name, a?.walkinPatientName,
+      a?.__accountName, a?.__staffName, a?.patient_name, a?.patientName, a?.walkin_patient_name, a?.walkinPatientName,
       a?.visitor_name, a?.visitorName, a?.name, patient?.full_name, patient?.fullName, patient?.name, 'Unknown',
     ),
     gender: pickFirst(a?.gender, a?.patient_gender, patient?.gender, 'Not specified'),
@@ -668,9 +821,10 @@ export const formatAppointment = (a, forcedStatus) => {
     status: normalizeAppointmentStatus(a, forcedStatus),
     availability: a?.availability || consultationTiming.availability || {},
     phone: formatPhoneNumber(pickFirst(
-      a?.patient_phone, a?.patientPhone, a?.phone, a?.mobile, a?.phone_number, a?.phoneNumber,
-      patient?.phone, patient?.mobile, patient?.phone_number, patient?.phoneNumber, 'N/A',
-    ), a?.phoneCountryCode || patient?.phoneCountryCode),
+      a?.__staffPhone, a?.__accountPhone,
+      a?.patient_phone, a?.patientPhone, a?.phone, a?.mobile, a?.phone_number, a?.phoneNumber, a?.contact_number,
+      patient?.phone, patient?.mobile, patient?.phone_number, patient?.phoneNumber, patient?.contact_number, 'N/A',
+    ), a?.phoneCountryCode || a?.phone_country_code || a?.__accountPhoneCountryCode || patient?.phoneCountryCode || patient?.phone_country_code),
     // Same field spread WalkInAppointmentsScreen accepts. `token` is only used
     // when it's a plain value — some endpoints nest a token-status object there.
     tokenNumber: pickFirst(
@@ -701,9 +855,10 @@ export const formatAppointment = (a, forcedStatus) => {
   };
 };
 
-// Queue order (same as the web dashboard): emergencies first, then slot time,
-// then token number ascending when both have one. Remaining ties fall back to
-// name so the order never jumps between refreshes.
+// Queue order: emergencies first (whoever sent it first), then token number
+// ascending, then slot time. The dashboard then runs the queue session by
+// session (utils/queueSlots), so inside each slot range it reads by token.
+// Remaining ties fall back to name so the order never jumps between refreshes.
 const getTokenNumber = (appt) => {
   const match = String(appt?.tokenNumber ?? '').match(/\d+/);
   return match ? Number(match[0]) : null;
@@ -714,28 +869,45 @@ const getStartMs = (appt) => {
   return dt ? dt.getTime() : 0;
 };
 
+// When the booking was made (ms), or 0 when the row doesn't say.
+const getCreatedMs = (appt) => Date.parse(pickFirst(
+  appt?.__raw?.created_at, appt?.__raw?.createdAt, appt?.created_at, appt?.createdAt,
+)) || 0;
+
 export const compareByToken = (a, b) => {
   // Emergencies always come first; among them, whoever sent it first.
   const ea = isEmergencyAppointment(a);
   const eb = isEmergencyAppointment(b);
   if (ea !== eb) return ea ? -1 : 1;
   if (ea && eb) {
-    const ca = Date.parse(pickFirst(a?.__raw?.created_at, a?.__raw?.createdAt, a?.created_at, a?.createdAt)) || 0;
-    const cb = Date.parse(pickFirst(b?.__raw?.created_at, b?.__raw?.createdAt, b?.created_at, b?.createdAt)) || 0;
-    if (ca !== cb) return ca - cb;
+    const ca = getCreatedMs(a);
+    const cb = getCreatedMs(b);
+    if (ca && cb && ca !== cb) return ca - cb;
   }
-  const returnedA = a?.availability?.status === 'available' && Boolean(a?.availability?.returnedAt);
-  const returnedB = b?.availability?.status === 'available' && Boolean(b?.availability?.returnedAt);
-  if (returnedA !== returnedB) return returnedA ? -1 : 1;
-  const timeDiff = getStartMs(a) - getStartMs(b);
-  if (timeDiff) return timeDiff;
   const ta = getTokenNumber(a);
   const tb = getTokenNumber(b);
   if (ta !== null && tb !== null && ta !== tb) return ta - tb;
+  const timeDiff = getStartMs(a) - getStartMs(b);
+  if (timeDiff) return timeDiff;
   return String(a?.name || '').localeCompare(String(b?.name || ''));
 };
 
 export const sortByToken = (list = []) => [...list].sort(compareByToken);
+
+// What the queue's slot heading reads (utils/queueSlots): the booked time in
+// minutes from midnight on its day, and the clinic whose availability grid
+// it is on.
+export const getQueueSlotInfo = (appt) => {
+  const raw = appt?.__raw || appt;
+  const booked = getBookedDateTime(raw, { endOfDayFallback: false });
+  const clinic = pickFirst(raw?.clinic_id, raw?.clinicId, raw?.clinic);
+  return {
+    emergency: isEmergencyAppointment(raw),
+    minutes: booked ? booked.getHours() * 60 + booked.getMinutes() : null,
+    iso: booked ? formatLocalDateKey(booked) : '',
+    clinicId: clinic && typeof clinic === 'object' ? pickFirst(clinic._id, clinic.id) : clinic,
+  };
+};
 
 export const isDoctorPendingAppointment = (appointment) =>
   ['pending', 'confirmed'].includes(appointment?.status);

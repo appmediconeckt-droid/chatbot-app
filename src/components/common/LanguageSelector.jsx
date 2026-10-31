@@ -8,7 +8,9 @@ import {
   FlatList,
   StyleSheet,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TextInput from '../TranslatedTextInput';
 import Text from '../TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -48,6 +50,11 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
   };
   const brandSoft = (brand && mixWithWhite(brand, 0.88)) || '#EFF6FF';
   const brandFaint = (brand && mixWithWhite(brand, 0.95)) || '#F8FAFF';
+  // The popup sits centred between the status and navigation bars, never
+  // touching either, and is never taller than the space between them.
+  const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
+  const sheetMaxHeight = Math.min(screenHeight * 0.72, screenHeight - insets.top - insets.bottom - 48);
   const { i18n } = useTranslation();
   const { t } = useLanguageRender();
   const { language: contextLang, setLanguage: setContextLanguage } = useLanguageContext();
@@ -190,7 +197,8 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
       <Modal visible={visible} transparent animationType="none" onRequestClose={close} statusBarTranslucent>
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={close} />
 
-        <Animated.View style={[styles.sheet, { transform: [{ scale }], opacity }]}>
+        <View pointerEvents="box-none" style={[styles.centre, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
+        <Animated.View style={[styles.sheet, { maxHeight: sheetMaxHeight, transform: [{ scale }], opacity }]}>
           {/* Header */}
           <View style={[styles.header, brand && { backgroundColor: brandFaint }]}>
             <View style={styles.headerLeft}>
@@ -262,6 +270,7 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
             <View style={styles.footerPill} />
           </View>
         </Animated.View>
+        </View>
       </Modal>
     </>
   );
@@ -277,13 +286,14 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 23, 42, 0.55)',
   },
+  centre: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   sheet: {
-    position: 'absolute',
-    top: '20%',
     width: '88%',
     maxWidth: 520,
-    alignSelf: 'center',
-    maxHeight: '75%',
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     overflow: 'hidden',

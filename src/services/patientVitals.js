@@ -9,6 +9,17 @@ const list = payload => {
   return [];
 };
 
+// The blood group clinic staff (doctor or receptionist) last recorded in this
+// patient's vitals, or '' when none was. The patient can only see it.
+export async function fetchRecordedBloodGroup() {
+  const { data } = await axios.get('/api/appointments');
+  const recorded = list(data)
+    .map(appointment => getAppointmentVitals(appointment))
+    .filter(vitals => vitals.blood_group)
+    .sort((a, b) => (Date.parse(b.recorded_at) || 0) - (Date.parse(a.recorded_at) || 0));
+  return recorded[0]?.blood_group || '';
+}
+
 export async function fetchPatientVitals() {
   // This authenticated endpoint is already scoped to the signed-in patient.
   const { data } = await axios.get('/api/appointments');

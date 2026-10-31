@@ -4,6 +4,7 @@
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import RNFS from 'react-native-fs';
 import { buildConsultationDocumentHtml, doctorRxToDocument } from './consultationPrescriptionDocument';
+import { withBookingQr } from './prescriptionBookingQr';
 
 const escapeHtml = value =>
   String(value ?? '')
@@ -20,8 +21,8 @@ const formatDate = value => {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-// Same page as the in-app view and the web's PrescriptionDocument.
-export const buildPrescriptionHtml = rx => buildConsultationDocumentHtml(doctorRxToDocument(rx));
+// The web's PrescriptionDocument page, with the doctor's booking QR.
+export const buildPrescriptionHtml = async rx => buildConsultationDocumentHtml(await withBookingQr(doctorRxToDocument(rx)));
 
 const unavailable = () => {
   const error = new Error('This needs the latest app version.');
@@ -47,7 +48,7 @@ export const sharePrescriptionPdf = async rx => {
   const pdf = NativeModules.PrescriptionPrint;
   if (!pdf?.createPdf || !pdf?.sharePdf) throw unavailable();
   const name = documentName(rx);
-  const path = await pdf.createPdf(buildPrescriptionHtml(rx), name);
+  const path = await pdf.createPdf(await buildPrescriptionHtml(rx), name);
   return pdf.sharePdf(path, name);
 };
 
@@ -59,7 +60,7 @@ export const downloadPrescriptionPdf = async rx => {
   const pdf = NativeModules.PrescriptionPrint;
   if (!pdf?.createPdf) throw unavailable();
   const name = documentName(rx);
-  const cachePath = await pdf.createPdf(buildPrescriptionHtml(rx), name);
+  const cachePath = await pdf.createPdf(await buildPrescriptionHtml(rx), name);
 
   // Android 10+ lets apps create files in Downloads without a permission.
   if (Platform.OS === 'android' && Platform.Version < 29) {
@@ -90,5 +91,5 @@ export const downloadPrescriptionPdf = async rx => {
 export const printPrescription = async rx => {
   const printer = NativeModules.PrescriptionPrint;
   if (!printer?.printHtml) throw unavailable();
-  return printer.printHtml(buildPrescriptionHtml(rx), documentName(rx));
+  return printer.printHtml(await buildPrescriptionHtml(rx), documentName(rx));
 };

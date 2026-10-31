@@ -14,7 +14,7 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
-import { fetchNotificationList, subscribeToNewNotifications } from '../api/doctorNotifications';
+import { doctorNotificationTarget, fetchNotificationList, subscribeToNewNotifications, withRealPatientNames } from '../api/doctorNotifications';
 
 // Doctors don't use chat, so message notifications are not shown here.
 const FILTERS = ['All', 'Urgent', 'Appointments'];
@@ -65,10 +65,13 @@ export const toDoctorNotifications = (list) => list.map(normalize).filter((n) =>
 const normalize = (n) => {
   const tone = classify(n);
   const data = n.data || n.metadata || n.meta || {};
+  const appointmentId = String(pickId(data.appointmentId, data.appointment_id, data.appointment?._id, data.appointment?.id, n.appointmentId) || '');
   return {
     // Set on appointment notifications (backend: data.appointmentId), so a
     // tap can open that exact appointment.
-    appointmentId: String(pickId(data.appointmentId, data.appointment_id, data.appointment?._id, data.appointment?.id, n.appointmentId) || ''),
+    appointmentId,
+    // The screen a tap opens (see doctorNotificationTarget).
+    target: doctorNotificationTarget({ type: n.type || data.type, actionUrl: n.actionUrl, title: n.title || n.heading, appointmentId }),
     isAppointment: /appointment|booking/i.test(String(n.type || '')) || /appointment/i.test(String(n.actionUrl || '')),
     id: String(n._id || n.id),
     tone,
@@ -81,10 +84,9 @@ const normalize = (n) => {
   };
 };
 
-// onOpenAppointment(appointmentId | null): tapping an appointment notification
-// opens the Appointments list on that appointment (or just the list when the
-// notification names none).
-export default function NotificationsScreen({ onBack, onOpenAppointment }) {
+// onOpen(target, appointmentId): a tap opens the screen the notification is
+// about — that appointment in the Appointments list, Earnings, Reviews, …
+export default function NotificationsScreen({ onBack, onOpen }) {
   const { showToast } = useToast();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +97,7 @@ export default function NotificationsScreen({ onBack, onOpenAppointment }) {
   const fetchNotifications = useCallback(async ({ silent = false } = {}) => {
     try {
       if (!silent) setLoading(true);
-      setNotifications(toDoctorNotifications(await fetchNotificationList()));
+      setNotifications(await withRealPatientNames(toDoctorNotifications(await fetchNotificationList())));
     } catch (err) {
       console.error('Error fetching doctor notifications:', err);
       if (!silent) setNotifications([]);
@@ -195,7 +197,7 @@ export default function NotificationsScreen({ onBack, onOpenAppointment }) {
               item={item}
               onOpen={() => {
                 if (!item.read) markRead(item.id);
-                if ((item.appointmentId || item.isAppointment) && onOpenAppointment) onOpenAppointment(item.appointmentId || null);
+                if (item.target && onOpen) onOpen(item.target, item.appointmentId || null);
               }}
               onDelete={() => removeNotification(item.id)}
             />

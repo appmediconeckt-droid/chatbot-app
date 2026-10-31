@@ -341,11 +341,11 @@ export const isValidMobileNumber = (value, countryCode = DEFAULT_COUNTRY_CODE) =
 };
 
 // The message to show for a phone field, or '' when it is fine or empty.
+// It names the country code, not a digit count: lengths differ by country.
 export const phoneNumberError = (value, countryCode = DEFAULT_COUNTRY_CODE, { mobile = true } = {}) => {
   const code = normalizeCountryCode(countryCode);
-  const digits = String(value || '').replace(/\D/g, '');
-  if (!digits) return '';
-  if (!isValidLocalPhoneNumber(value, code)) return `Enter a valid ${getPhoneLengthLabel(code)}-digit ${mobile ? 'mobile' : 'phone'} number.`;
+  if (!String(value ?? '').trim()) return '';
+  if (!isValidLocalPhoneNumber(value, code)) return `Enter a valid ${mobile ? 'mobile' : 'phone'} number for ${code}.`;
   if (mobile && !isValidMobileNumber(value, code)) return 'Indian mobile numbers start with 6, 7, 8 or 9.';
   return '';
 };

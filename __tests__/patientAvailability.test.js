@@ -31,14 +31,26 @@ test('availability is normalized from consultation timing', () => {
   expect(formatAppointment({ ...patient, _id: 'appointment', consultation_timing: JSON.stringify({ availability }) }).availability).toEqual(availability);
 });
 
-test('returned patients move to the front of the doctor queue', () => {
-  const returned = { id: 'returned', name: 'Returned', availability: { status: 'available', returnedAt: new Date().toISOString() } };
-  const waiting = { id: 'waiting', name: 'Waiting', availability: { status: 'available' } };
-  expect(sortByToken([waiting, returned])[0]).toBe(returned);
+test('a returned patient keeps their token place in the doctor queue', () => {
+  const returned = { id: 'returned', name: 'Returned', tokenNumber: 5, availability: { status: 'available', returnedAt: new Date().toISOString() } };
+  const waiting = { id: 'waiting', name: 'Waiting', tokenNumber: 2, availability: { status: 'available' } };
+  expect(sortByToken([returned, waiting]).map((appt) => appt.id)).toEqual(['waiting', 'returned']);
 });
 
 test('receptionist has no Next tab and still sees skipped patients in Pending', () => {
   expect(QUEUE_TABS.map((tab) => tab.key)).not.toContain('next');
   const skipped = { ...patient, id: 'skipped', queueStatus: 'skipped' };
   expect(groupQueue([skipped]).pending).toContain(skipped);
+});
+
+test('patients marked Unavailable leave Pending for the Unavailable tab until marked Available', () => {
+  expect(QUEUE_TABS.map((tab) => tab.key)).toEqual(['pending', 'unavailable', 'in-progress', 'completed', 'cancelled']);
+  const away = { ...patient, id: 'away', availability: { status: 'unavailable', updatedAt: new Date().toISOString() } };
+  const back = { ...patient, id: 'back', availability: { status: 'available', returnedAt: new Date().toISOString() } };
+  const groups = groupQueue([away, back]);
+  expect(groups.unavailable.map((row) => row.id)).toEqual(['away']);
+  expect(groups.pending.map((row) => row.id)).toEqual(['back']);
+  // Once with the doctor, the visit is In Progress whatever the availability says.
+  const started = { ...away, id: 'started', timing: { startedAt: new Date().toISOString() } };
+  expect(groupQueue([started])['in-progress'].map((row) => row.id)).toEqual(['started']);
 });

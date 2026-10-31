@@ -18,9 +18,9 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import {
-  getPhoneLengthLabel,
   isValidMobileNumber,
   normalizeLocalPhoneNumber,
+  phoneNumberError,
 } from '../../utils/countryCodes';
 import {
   calculateAgeFromDateOfBirth,
@@ -237,7 +237,7 @@ const DoctorSignup = ({ navigation, route }) => {
 
     if (!formData.phoneNumber) next.phoneNumber = 'Phone is required';
     else if (!isValidMobileNumber(formData.phoneNumber, formData.phoneCountryCode)) {
-      next.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
+      next.phoneNumber = phoneNumberError(formData.phoneNumber, formData.phoneCountryCode);
     }
 
     const calculatedAge = calculateAgeFromDateOfBirth(formData.dateOfBirth);

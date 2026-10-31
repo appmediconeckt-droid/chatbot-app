@@ -21,7 +21,7 @@ import { useDoctorBack } from '../useDoctorBack';
 import EditClinicScreen from './EditClinicScreen';
 import ClinicFeeField, { cleanClinicFee, isValidClinicFee } from './ClinicFeeField';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
-import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
+import { buildInternationalPhoneNumber, isValidLocalPhoneNumber, phoneNumberError } from '../../../../utils/countryCodes';
 import { DEFAULT_COUNTRY, findCountry, formatFee } from '../../../../utils/consultationCurrency';
 import { feeCurrencyNeedsSave, loadDoctorFeeCurrency, saveDoctorFeeCurrency } from '../api/doctorFeeCurrency';
 
@@ -133,7 +133,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     }
     if (!isValidLocalPhoneNumber(phone, phoneCountryCode)) {
       setStatus('failed');
-      setMessage(`Enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number for ${phoneCountryCode}`);
+      setMessage(phoneNumberError(phone, phoneCountryCode, { mobile: false }));
       return;
     }
     if (!isValidClinicFee(fee, currency)) {

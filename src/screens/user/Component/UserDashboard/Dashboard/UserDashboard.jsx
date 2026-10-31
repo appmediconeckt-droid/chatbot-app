@@ -76,7 +76,8 @@ import { parseWalkInQr } from "../Tab/QrScanner/walkInQr";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import TokenStatusScreen from "../Tab/Token/TokenStatusScreen";
-import { formatTimer, getLiveTokenTiming } from "../Tab/Token/tokenTiming";
+import AppointmentVitalsSheet from "../../../../../components/AppointmentVitalsSheet";
+import { hasAppointmentVitals } from "../../../../../utils/appointmentVitals";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
 import { isProfessionalAccountDeleted } from "../../../../../utils/deletedAccount";
@@ -1185,10 +1186,6 @@ const getTokenItemAptId = (item) => String(
   item?.appointment?.appointmentId || item?.appointment?._id || item?.appointment?.id || item?._id || item?.id || ''
 );
 const showQueueValue = (value, suffix = '') => (value != null && value !== '' ? `${value}${suffix}` : '--');
-const formatTurnTime = (value) => {
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
-};
 const CLINIC_QUEUE_POLL_MS = 10000;
 
 // Live queue for one clinic-visit appointment, from the same endpoint and
@@ -1383,12 +1380,9 @@ const sheetStyles = StyleSheet.create({
   closePastBtn: { paddingVertical: 12, alignItems: 'center' },
   closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
   queueCard: { backgroundColor: PATIENT.backgroundTint, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#E6F6EC', gap: 10 },
-  queueHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  queueHeadLabel: { fontSize: 11.5, fontWeight: '600', color: '#64748b' },
-  queueTokenValue: { fontSize: 30, fontWeight: '900', color: PATIENT.primary, marginTop: 1 },
-  queueServingBox: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: '#E6F6EC' },
-  queueServingLabel: { fontSize: 10.5, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.4 },
-  queueServingValue: { fontSize: 22, fontWeight: '900', color: '#0f172a', marginTop: 1 },
+  queueTokenTile: { width: 58, height: 58, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  queueTokenTileLabel: { fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.85)', letterSpacing: 0.8 },
+  queueTokenTileValue: { fontSize: 22, fontWeight: '900', color: '#ffffff', marginTop: 1 },
   queueCountdownRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ffffff', borderRadius: 12, padding: 10 },
   queueStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ffffff', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
   queueStatusRowTurn: { backgroundColor: PATIENT.primary },
@@ -1418,6 +1412,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const [selectedApt, setSelectedApt] = useState(null);
   const [selectedProviderKey, setSelectedProviderKey] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  // The appointment whose recorded vitals are open ("View Vitals").
+  const [vitalsApt, setVitalsApt] = useState(null);
   const [countdown, setCountdown] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
   const [emergencyAppointment, setEmergencyAppointment] = useState(null);
@@ -1771,11 +1767,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const queueCurrent = clinicQueue.item?.current || {};
   const queueInfo = clinicQueue.item?.queue || {};
   const myTokenNo = queueToken.myToken ?? clinicQueue.fallbackToken;
-  const nowServingNo = queueCurrent.currentToken;
-  const queueTiming = getLiveTokenTiming(queueCurrent, queueInfo, clinicQueue.now);
-  const queueWait = queueTiming.waiting != null
-    ? formatTimer(queueTiming.waiting)
-    : showQueueValue(queueInfo.estimatedWaitMinutes, ' min');
   const queueStatusText = queueCurrent.isYourTurn
     ? t("It's your turn! Please go to the doctor's cabin.")
     : queueCurrent.doctorStatus === 'consulting'
@@ -1798,6 +1789,14 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     ? '--:--:--'
     : [Math.floor(turnLeftSec / 3600), Math.floor((turnLeftSec % 3600) / 60), turnLeftSec % 60]
       .map((n) => String(n).padStart(2, '0')).join(':');
+  // The countdown, "Est. wait" and "Expected turn" all read this one target
+  // time, so the three never disagree (the booked time stays under BOOKED TIME).
+  const turnTimeLabel = Number.isFinite(turnTargetMs)
+    ? new Date(turnTargetMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '--';
+  const queueWait = queueCurrent.isYourTurn
+    ? t('Now')
+    : turnLeftSec != null ? (turnLeftSec < 60 ? t('< 1 min') : `${Math.round(turnLeftSec / 60)} min`) : showQueueValue(queueInfo.estimatedWaitMinutes, ' min');
   const turnCountdownLabel = queueCurrent.isYourTurn
     ? t("It's your turn now")
     : turnLeftSec === 0
@@ -1996,6 +1995,19 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   </Text>
                 </TouchableOpacity>
 
+                {/* Only on a visit where the doctor or clinic recorded vitals. */}
+                {hasAppointmentVitals(apt) && (
+                  <TouchableOpacity
+                    style={styles.appointmentDetailsBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="View Vitals"
+                    onPress={() => setVitalsApt(apt)}
+                  >
+                    <Ionicons name="pulse-outline" size={16} color={PATIENT.primary} />
+                    <Text style={styles.appointmentDetailsText}>{t('View Vitals')}</Text>
+                  </TouchableOpacity>
+                )}
+
                 {/* No quick Video / Voice on the card: a doctor rings the
                     patient for a video/voice consultation, and a consultant's
                     video, voice and chat are inside the details sheet. */}
@@ -2081,6 +2093,14 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         error={emergencyError}
         onClose={() => { if (!emergencyBusy) setEmergencyAppointment(null); }}
         onSubmit={submitEmergency}
+      />
+
+      <AppointmentVitalsSheet
+        appointment={vitalsApt}
+        doctorName={vitalsApt ? counselorDisplayName(vitalsApt) : ''}
+        clinicName={vitalsApt?.clinic?.name || vitalsApt?.clinic?.clinic_name
+          || (typeof vitalsApt?.clinic === 'string' ? vitalsApt.clinic : '') || vitalsApt?.clinic_name || ''}
+        onClose={() => setVitalsApt(null)}
       />
 
       <Modal statusBarTranslucent navigationBarTranslucent
@@ -2177,27 +2197,16 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   OR Session summary (past) */}
               {!isPast && selectedIsClinicVisit ? (
                 <View style={sheetStyles.queueCard}>
-                  <View style={sheetStyles.queueHeadRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={sheetStyles.queueHeadLabel}>{t('Your Token')}</Text>
-                      <Text style={sheetStyles.queueTokenValue}>
-                        {myTokenNo != null ? `#${myTokenNo}` : '--'}
-                      </Text>
-                    </View>
-                    <View style={sheetStyles.queueServingBox}>
-                      <Text style={sheetStyles.queueServingLabel}>{t('Now Serving')}</Text>
-                      <Text style={sheetStyles.queueServingValue}>
-                        {nowServingNo != null ? `#${nowServingNo}` : '--'}
-                      </Text>
-                    </View>
-                  </View>
-
+                  {/* Token, turn countdown and turn time on one row. */}
                   <View style={sheetStyles.queueCountdownRow}>
                     <LinearGradient
                       colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-                      style={sheetStyles.countIcon}
+                      style={sheetStyles.queueTokenTile}
                     >
-                      <Ionicons name="time-outline" size={22} color="#ffffff" />
+                      <Text style={sheetStyles.queueTokenTileLabel}>{t('TOKEN')}</Text>
+                      <Text translate={false} style={sheetStyles.queueTokenTileValue} numberOfLines={1} adjustsFontSizeToFit>
+                        {myTokenNo != null ? `#${myTokenNo}` : '--'}
+                      </Text>
                     </LinearGradient>
                     <View style={{ flex: 1 }}>
                       <Text style={sheetStyles.countLabel}>{turnCountdownLabel}</Text>
@@ -2207,7 +2216,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={sheetStyles.countDay}>{dayLabel}</Text>
-                      <Text style={sheetStyles.countTime}>{timeLabel}</Text>
+                      <Text style={sheetStyles.countTime}>{turnTimeLabel}</Text>
                     </View>
                   </View>
 
@@ -2236,7 +2245,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                       <Text style={sheetStyles.queueStatLabel}>{t('Est. wait')}</Text>
                     </View>
                     <View style={sheetStyles.queueStat}>
-                      <Text style={sheetStyles.queueStatValue}>{formatTurnTime(queueInfo.estimatedTurnTime)}</Text>
+                      <Text style={sheetStyles.queueStatValue}>{queueCurrent.isYourTurn ? t('Now') : turnTimeLabel}</Text>
                       <Text style={sheetStyles.queueStatLabel}>{t('Expected turn')}</Text>
                     </View>
                   </View>
@@ -2308,7 +2317,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   <View style={[sheetStyles.gridIcon, { backgroundColor: "#E6F6EC" }]}>
                     <MaterialIcons name="schedule" size={18} color={PATIENT.primary} />
                   </View>
-                  <Text style={sheetStyles.gridLabel}>{t('TIME')}</Text>
+                  <Text style={sheetStyles.gridLabel}>{selectedIsClinicVisit ? t('BOOKED TIME') : t('TIME')}</Text>
                   <Text style={sheetStyles.gridValue} numberOfLines={2}>{timeLabel}</Text>
                 </View>
               </View>

@@ -89,19 +89,16 @@ const prescriptionText = rx => {
     data.prescriptionId && `Prescription No.: ${data.prescriptionId}`,
     data.opd && `OPD / Token No.: ${data.opd}`,
     `Patient: ${data.patient}`,
-    `Patient ID: ${data.patientId || '—'}`,
     `Age / Gender: ${[data.age && `${data.age} years`, data.gender].filter(Boolean).join(' / ')}`,
     `Contact No.: ${data.phone || '—'}`,
     `Weight: ${data.weight || '—'}`,
-    `Allergies: ${data.allergies || 'Not recorded'}`,
     `Consultation for: ${data.issue}`,
     `Diagnosis: ${data.diagnosis}`,
     'Medicines:',
     ...(data.medicines.length ? data.medicines.map((m, i) =>
-      `${i + 1}. ${[m.name || m.medicine, m.strength, m.dosage, medicineDuration(m), medicineTiming(m), m.instructions].filter(Boolean).join(' | ')}`,
+      `${i + 1}. ${[m.name || m.medicine, m.dosage, medicineDuration(m), medicineTiming(m), m.instructions].filter(Boolean).join(' | ')}`,
     ) : [data.medicine || 'No medicines prescribed.']),
     data.advice && `Advice: ${data.advice}`,
-    data.notes && data.notes !== data.advice && `Additional notes: ${data.notes}`,
     ...data.tests.map(test => `Recommended test: ${test.testName || test.name}${testLine(test)}`),
     `Next Follow-up: ${followUpText(data)}`,
     `Issued by: ${data.doctor}`,
@@ -258,7 +255,7 @@ function PrescriptionContent({ rx: group, onClose }) {
       >
         {/* Same consultation record as the web patient Prescriptions tab
             (common/PrescriptionDocument.jsx). */}
-        <ConsultationPrescriptionDocument data={doctorRxToDocument(rx)} />
+        <ConsultationPrescriptionDocument data={doctorRxToDocument(rx)} bleed={16} />
         <View style={styles.disclaimer}>
           <Ionicons
             name="information-circle-outline"

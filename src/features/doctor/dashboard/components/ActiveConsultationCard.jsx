@@ -13,7 +13,7 @@ import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
 import { getConsultationModeInfo, getTokenLabel } from '../api/doctorAppointments';
 import { MODE_STYLES } from './AppointmentCard';
-import { VITAL_FIELDS, canonicalVitals, hasVital } from '../../../../components/VitalsForm';
+import { VITAL_DISPLAY_FIELDS, canonicalVitals, hasVital } from '../../../../components/VitalsForm';
 import { formatTime12 } from '../../../../utils/appointmentTime';
 
 const getInitials = (name = '') =>
@@ -56,7 +56,7 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
   const modeLabel = mode.label.replace(/\s+Consultation$/i, '');
   const modeStyle = MODE_STYLES[mode.key];
   const vitals = canonicalVitals(patient.vitals);
-  const recordedVitals = VITAL_FIELDS.filter(([key]) => hasVital(vitals[key]));
+  const recordedVitals = VITAL_DISPLAY_FIELDS.filter(([key]) => hasVital(vitals[key]));
 
   return (
     <View style={s.card}>
@@ -111,7 +111,7 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
             <Text style={s.vitalsTitle}>Vitals</Text>
             <Text translate={false} style={s.vitalsSummary} numberOfLines={1}>
               {recordedVitals.length
-                ? recordedVitals.map(([key, label, , unit]) => `${label} ${String(vitals[key]).trim()}${/^[/°%]/.test(unit) ? unit : ` ${unit}`}`).join('  ·  ')
+                ? recordedVitals.map(([key, label, , unit]) => `${label} ${String(vitals[key]).trim()}${!unit || /^[/°%]/.test(unit) ? unit : ` ${unit}`}`).join('  ·  ')
                 : 'Not recorded — optional'}
             </Text>
           </View>

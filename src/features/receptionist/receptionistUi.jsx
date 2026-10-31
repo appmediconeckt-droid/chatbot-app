@@ -10,11 +10,10 @@ import { toImageUri } from '../../utils/imageUri';
 import { API_BASE_URL } from '../../axiosConfig';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 import { QUEUE_TABS, appointmentStatuses, canCancelAppointment, canRecordVitals, canUpdatePatientAvailability, clinicName, clockLabel, dateLabel, displayTime, emergencyReasonOf, patientKey, statusLabel } from './receptionistUtils';
-import { getDoctorMedicines, getDoctorTests, unpackConsultationNotes } from '../../utils/consultationDetails';
 import { saveStaffAppointmentAvailability, saveStaffAppointmentVitals } from './receptionistApi';
 import { useReceptionistVitals } from './ReceptionistVitalsContext';
 import { formatPhoneNumber } from '../../utils/countryCodes';
-import VitalsForm, { VITAL_FIELDS, canonicalVitals, hasVital } from '../../components/VitalsForm';
+import VitalsForm, { VITAL_DISPLAY_FIELDS, canonicalVitals, hasVital } from '../../components/VitalsForm';
 
 export const REC = {
   primary: '#12756D',
@@ -127,7 +126,10 @@ export function EmergencyReason({ row }) {
 // Read-only: only the readings that were actually recorded, as tiles.
 function PatientVitalsView({ patient }) {
   const values = canonicalVitals(patient?.vitals);
-  const recorded = VITAL_FIELDS.filter(([key]) => hasVital(values[key]));
+  const recorded = VITAL_DISPLAY_FIELDS.filter(([key]) => hasVital(values[key]));
+  // Until the server keeps a blood group, it reads "Not recorded" next to
+  // the readings that were saved.
+  const bloodGroupMissing = recorded.length > 0 && !hasVital(values.blood_group);
   return (
     <View style={s.vitalsCard}>
       <View style={s.vitalsHeader}>
@@ -139,19 +141,26 @@ function PatientVitalsView({ patient }) {
       </View>
       {recorded.length > 0 ? (
         <View style={s.vitalsGrid}>
+          {bloodGroupMissing && (
+            <View style={s.vitalTile}>
+              <View style={[s.vitalTileAccent, { backgroundColor: VITAL_DISPLAY_FIELDS[0][4] }]} />
+              <Text style={s.vitalTileLabel}>Blood group</Text>
+              <Text style={[s.vitalTileValue, s.vitalTileMissing]}>Not recorded</Text>
+            </View>
+          )}
           {recorded.map(([key, label, , unit, accent]) => (
             <View key={key} style={s.vitalTile}>
               <View style={[s.vitalTileAccent, { backgroundColor: accent }]} />
               <Text style={s.vitalTileLabel}>{label}</Text>
               <Text translate={false} style={s.vitalTileValue}>
                 {String(values[key]).trim()}
-                <Text translate={false} style={s.vitalTileUnit}>{/^[/°%]/.test(unit) ? unit : ` ${unit}`}</Text>
+                {!!unit && <Text translate={false} style={s.vitalTileUnit}>{/^[/°%]/.test(unit) ? unit : ` ${unit}`}</Text>}
               </Text>
             </View>
           ))}
         </View>
       ) : (
-        <Text style={s.vitalsEmpty}>Vitals measured at the front desk before the checkup will appear here.</Text>
+        <Text style={s.vitalsEmpty}>Vitals measured before the checkup will appear here.</Text>
       )}
       {hasVital(values.notes) && (
         <View style={s.vitalsNotesBox}>
@@ -402,6 +411,7 @@ export function OptionSheet({ visible, title, options, value, onSelect, onClose 
 
 // One booking as a card — the web's AppointmentTable row on a phone.
 function PatientAvailabilityControl({ patient }) {
+  const { recordAvailability } = useReceptionistVitals();
   const [saved, setSaved] = useState(null);
   const [busy, setBusy] = useState(false);
   const current = saved && Date.parse(saved.updatedAt) > (Date.parse(patient.availability?.updatedAt) || 0)
@@ -413,6 +423,8 @@ function PatientAvailabilityControl({ patient }) {
     try {
       const result = await saveStaffAppointmentAvailability(patient, status);
       setSaved(result.availability);
+      // Moves the card between the Pending and Unavailable tabs right away.
+      recordAvailability(patient, result.availability);
       const message = status === 'unavailable'
         ? 'Doctor notified. The doctor can move this patient to Next.'
         : result.availability.returnedAt
@@ -540,30 +552,16 @@ function InfoRows({ rows }) {
   ));
 }
 
-function InfoBlock({ label, value, tone }) {
-  if (!present(value)) return null;
-  return (
-    <View style={[s.infoBlock, tone && s[`infoBlock_${tone}`]]}>
-      <Text style={[s.infoBlockLabel, tone && s[`infoBlockLabel_${tone}`]]}>{label}</Text>
-      <Text translate={false} style={s.infoBlockValue}>{String(value)}</Text>
-    </View>
-  );
-}
-
-// "View details": the appointment in sections, showing only what was recorded.
-function PatientDetailsView({ patient, clinics, doctorName, consultation, medicines, tests }) {
+// "View details": the appointment in sections, showing only what was
+// recorded. The doctor's consultation (diagnosis, medicines, advice…) is not
+// shown to the desk.
+function PatientDetailsView({ patient, clinics, doctorName }) {
   const phone = formatPhoneNumber(patient.phoneNumber || patient.phone, patient.phoneCountryCode || patient.patient?.phoneCountryCode);
   const clinic = clinicName(clinics, patient.clinicId);
   const startedAt = patient.timing?.startedAt ? displayTime(patient.timing.startedAt) : '';
   const endedAt = patient.timing?.endedAt ? displayTime(patient.timing.endedAt) : '';
-  const symptoms = consultation.symptoms || consultation.issue;
-  const diagnosis = consultation.diagnosis || consultation.problem;
-  const advice = consultation.advice || consultation.instructions;
-  const notes = consultation.additionalNotes || consultation.additional_notes || consultation.notes;
-  const followUp = consultation.followUpDate || consultation.follow_up_date;
   const hasPatient = [phone, patient.age, patient.gender].some(present);
   const hasCheckup = present(startedAt) || present(endedAt);
-  const hasConsultation = [symptoms, diagnosis, advice, notes, followUp].some(present) || medicines.length > 0 || tests.length > 0;
 
   return (
     <>
@@ -593,52 +591,6 @@ function PatientDetailsView({ patient, clinics, doctorName, consultation, medici
           <InfoRows rows={[['Started', startedAt], ['Completed', endedAt]]} />
         </InfoSection>
       )}
-
-      {hasConsultation && (
-        <InfoSection icon="medkit-outline" title="Consultation">
-          <InfoBlock label="Symptoms" value={symptoms} tone="amber" />
-          <InfoBlock label="Diagnosis" value={diagnosis} tone="indigo" />
-          {medicines.length > 0 && (
-            <View style={s.infoGroup}>
-              <Text style={s.infoGroupLabel}>Medicines</Text>
-              {medicines.map((medicine, index) => {
-                const details = [medicine.dosage, medicine.timings.join(', '), medicine.duration].filter(present);
-                return (
-                  <View key={`${medicine.name}-${index}`} style={s.medItem}>
-                    <View style={s.medItemIndex}><Text translate={false} style={s.medItemIndexText}>{index + 1}</Text></View>
-                    <View style={s.flex}>
-                      <Text translate={false} style={s.medItemName}>{medicine.name || 'Medicine'}</Text>
-                      {details.length > 0 && <Text translate={false} style={s.medItemMeta}>{details.join(' · ')}</Text>}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-          {tests.length > 0 && (
-            <View style={s.infoGroup}>
-              <Text style={s.infoGroupLabel}>Recommended tests</Text>
-              <View style={s.testChips}>
-                {tests.map((test, index) => (
-                  <View key={`${test}-${index}`} style={s.testChip}>
-                    <Ionicons name="flask-outline" size={12} color="#3975C7" />
-                    <Text translate={false} style={s.testChipText}>{test}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-          <InfoBlock label="Advice" value={advice} />
-          <InfoBlock label="Additional notes" value={notes} />
-          {present(followUp) && (
-            <View style={s.followUpRow}>
-              <Ionicons name="calendar" size={15} color="#B45309" />
-              <Text style={s.followUpLabel}>Follow-up</Text>
-              <Text translate={false} style={s.followUpValue}>{dateLabel(followUp)}</Text>
-            </View>
-          )}
-        </InfoSection>
-      )}
     </>
   );
 }
@@ -647,11 +599,8 @@ function PatientDetailsView({ patient, clinics, doctorName, consultation, medici
 export function PatientDetailsSheet({ patient: appointment, clinics, doctorName, onClose, onCancel, cancelBusy, editVitals = false }) {
   const { withSavedVitals } = useReceptionistVitals();
   const patient = withSavedVitals(appointment);
-  const consultation = unpackConsultationNotes(patient) || {};
-  const medicines = getDoctorMedicines(consultation);
-  const tests = getDoctorTests(consultation);
   const [saving, setSaving] = useState(false);
-  const hasVitalsRecorded = VITAL_FIELDS.some(([key]) => hasVital(canonicalVitals(patient?.vitals)[key]));
+  const hasVitalsRecorded = VITAL_DISPLAY_FIELDS.some(([key]) => hasVital(canonicalVitals(patient?.vitals)[key]));
   const insets = useSafeAreaInsets();
   const {
     scrollRef,
@@ -708,7 +657,7 @@ export function PatientDetailsSheet({ patient: appointment, clinics, doctorName,
                 ) : (
                 <>
                 <EmergencyReason row={patient} />
-                <PatientDetailsView patient={patient} clinics={clinics} doctorName={doctorName} consultation={consultation} medicines={medicines} tests={tests} />
+                <PatientDetailsView patient={patient} clinics={clinics} doctorName={doctorName} />
                 <PatientVitalsView patient={patient} />
                 </>
                 )}
@@ -873,26 +822,6 @@ const s = StyleSheet.create({
   infoRowLast: { borderBottomWidth: 0, paddingBottom: 2 },
   infoLabel: { fontSize: 13, color: REC.muted },
   infoValue: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: REC.ink, textAlign: 'right' },
-  infoBlock: { marginTop: 8, padding: 11, borderRadius: 12, backgroundColor: '#F8FAFC', borderLeftWidth: 3, borderLeftColor: '#CBD5E1' },
-  infoBlock_amber: { backgroundColor: '#FFF8EC', borderLeftColor: '#F59E0B' },
-  infoBlock_indigo: { backgroundColor: '#EEF2FF', borderLeftColor: '#6366F1' },
-  infoBlockLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase', color: REC.muted },
-  infoBlockLabel_amber: { color: '#B45309' },
-  infoBlockLabel_indigo: { color: '#4338CA' },
-  infoBlockValue: { fontSize: 13.5, lineHeight: 20, fontWeight: '600', color: REC.ink, marginTop: 3 },
-  infoGroup: { marginTop: 12 },
-  infoGroupLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase', color: REC.muted, marginBottom: 6 },
-  medItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: '#D7EEE8', backgroundColor: '#FBFEFD', marginBottom: 6 },
-  medItemIndex: { width: 22, height: 22, borderRadius: 11, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  medItemIndexText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
-  medItemName: { fontSize: 14, fontWeight: '800', color: REC.ink },
-  medItemMeta: { fontSize: 12.5, color: '#475467', marginTop: 2 },
-  testChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  testChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#E8F1FF' },
-  testChipText: { fontSize: 12.5, fontWeight: '700', color: '#2F5FA3' },
-  followUpRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, padding: 11, borderRadius: 12, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
-  followUpLabel: { flex: 1, fontSize: 13, fontWeight: '700', color: '#92400E' },
-  followUpValue: { fontSize: 14, fontWeight: '800', color: '#B45309' },
   // Vitals — view
   vitalsCard: { marginTop: 12, padding: 14, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },
   vitalsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
@@ -904,6 +833,7 @@ const s = StyleSheet.create({
   vitalTileAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
   vitalTileLabel: { fontSize: 11.5, fontWeight: '600', color: REC.muted },
   vitalTileValue: { fontSize: 18, fontWeight: '800', color: REC.ink, marginTop: 3 },
+  vitalTileMissing: { fontSize: 14, fontWeight: '700', color: REC.muted },
   vitalTileUnit: { fontSize: 12, fontWeight: '600', color: REC.muted },
   vitalsEmpty: { fontSize: 13, lineHeight: 19, color: REC.muted, paddingVertical: 6 },
   vitalsNotesBox: { marginTop: 12, padding: 11, borderRadius: 12, backgroundColor: '#F8FAFC' },

@@ -10,6 +10,7 @@ import ActiveConsultationCard from '../src/features/doctor/dashboard/components/
 import PatientDetailScreen from '../src/features/doctor/dashboard/components/PatientDetailScreen';
 import VisitDetailScreen from '../src/features/doctor/dashboard/components/VisitDetailScreen';
 import CompleteAppointmentScreen from '../src/features/doctor/dashboard/components/CompleteAppointmentScreen';
+import EditCompletedAppointmentScreen from '../src/features/doctor/dashboard/components/EditCompletedAppointmentScreen';
 import PatientVitalsButton from '../src/components/PatientVitalsButton';
 import useLiveRefresh from '../src/hooks/useLiveRefresh';
 import { fetchPatientVitals } from '../src/services/patientVitals';
@@ -25,7 +26,9 @@ jest.mock('../src/components/TranslatedText', () => 'Text');
 jest.mock('../src/components/TranslatedTextInput', () => 'TextInput');
 jest.mock('@react-native-community/datetimepicker', () => ({ __esModule: true, default: 'DateTimePicker', DateTimePickerAndroid: {} }));
 jest.mock('../src/hooks/useKeyboardAwareScroll', () => ({ __esModule: true, default: () => ({ scrollRef: { current: null }, frameInset: 0 }) }));
+jest.mock('../src/hooks/useKeyboardLift', () => ({ __esModule: true, default: () => [{ current: null }, 0] }));
 jest.mock('react-native-linear-gradient', () => 'Gradient');
+jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 jest.mock('../src/features/doctor/dashboard/icons/AppIcon', () => 'Icon');
 jest.mock('../src/features/doctor/dashboard/utils/consultationPrescriptionPdf', () => ({ downloadConsultationPrescriptionPdf: jest.fn() }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
@@ -85,17 +88,25 @@ test('doctor patient records preserve saved vitals for online and walk-in visits
   }
 });
 
-test.each(['patient details', 'visit details', 'completion form'])('doctor %s displays the saved readings', async screen => {
-  const item = formatAppointment(visit);
-  const record = { ...vitals, vitals, id: 'visit-1', date: '15 Oct 2026', time: '14:30', bp: '120/80', temperatureUnit: 'C', respiratoryRate: 16, painScore: 0, recordedAt: vitals.recorded_at, medicines: [], tests: [], problem: 'Checkup', doctor: 'Test doctor', status: 'confirmed' };
-  const patient = { name: 'Test patient', age: 30, gender: 'male', records: [record] };
-  const element = screen === 'completion form' ? <CompleteAppointmentScreen patient={item} />
-      : screen === 'patient details' ? <PatientDetailScreen patient={patient} />
-        : <VisitDetailScreen patient={patient} record={record} />;
-  await render(element);
+const visitRecord = { ...vitals, vitals, id: 'visit-1', date: '15 Oct 2026', time: '14:30', bp: '120/80', temperatureUnit: 'C', respiratoryRate: 16, painScore: 0, recordedAt: vitals.recorded_at, medicines: [], tests: [], problem: 'Checkup', doctor: 'Test doctor', status: 'confirmed' };
+const visitPatient = { name: 'Test patient', age: 30, gender: 'male', records: [visitRecord] };
+
+test('doctor patient details displays the latest saved readings', async () => {
+  await render(<PatientDetailScreen patient={visitPatient} />);
   expect(text()).toContain('120/80');
   expect(text()).toContain('98');
   expect(text()).toContain('Measured before consultation');
+});
+
+test('doctor visit details leaves vitals to the patient page', async () => {
+  await render(<VisitDetailScreen patient={visitPatient} record={visitRecord} />);
+  expect(text()).not.toContain('120/80');
+  expect(text()).not.toContain('Vital Signs');
+});
+
+test('doctor visit details leaves the diagnosis to the prescription', async () => {
+  await render(<VisitDetailScreen patient={visitPatient} record={{ ...visitRecord, diagnosis: 'Viral fever' }} />);
+  expect(text()).not.toContain('Viral fever');
 });
 
 test.each(['pending', 'in-progress', 'completed'])('dashboard %s queue cards do not display vitals', async status => {
@@ -113,11 +124,16 @@ test.each(['started', 'paused', 'break'])('active consultation in %s state does 
   expect(text()).not.toContain('Patient vitals');
 });
 
-test('doctor completion keeps Fahrenheit readings accurate in its Celsius field', async () => {
-  await render(<CompleteAppointmentScreen patient={formatAppointment({ ...visit, vitals: { ...vitals, temperature: 98.6, temperature_unit: 'F' } })} />);
-  expect(text()).toContain('98.6 °F');
-  const temperatureInput = root.root.findAllByType('TextInput').find(node => node.props.placeholder === '37.0');
-  expect(temperatureInput.props.value).toBe('37');
+test('the doctor completion form does not show vitals', async () => {
+  await render(<CompleteAppointmentScreen patient={formatAppointment(visit)} />);
+  expect(text()).not.toContain('120/80');
+  expect(text()).not.toContain('Recorded patient vitals');
+});
+
+test('the completed appointment viewer does not show vitals', async () => {
+  await render(<EditCompletedAppointmentScreen appointment={formatAppointment({ ...visit, appointment_status: 'completed' })} />);
+  expect(text()).not.toContain('120/80');
+  expect(text()).not.toContain('Patient vitals');
 });
 
 test('user profile button appears only for receptionist readings, then opens the latest record read-only', async () => {

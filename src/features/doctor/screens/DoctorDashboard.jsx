@@ -46,6 +46,8 @@ import NotificationsScreen from '../dashboard/components/NotificationsScreen';
 import DoctorSettingsScreen from '../dashboard/components/DoctorSettingsScreen';
 import OverviewCard from '../dashboard/components/OverviewCard';
 import QueueTabs from '../dashboard/components/QueueTabs';
+import QueueSlotHeader from '../../../components/common/QueueSlotHeader';
+import { groupQueueBySession, useDoctorAvailability } from '../../../utils/queueSlots';
 import LogoutConfirmModal from '../dashboard/components/LogoutConfirmModal';
 import ConsultationPrescriptionModal from '../dashboard/components/ConsultationPrescriptionModal';
 import {
@@ -55,6 +57,7 @@ import {
   formatLocalDateKey,
   getAppointmentSource,
   getDoctorIdFromUser,
+  getQueueSlotInfo,
   getSkipPayload,
   getStatusUpdatePayload,
   getStoredDoctorUser,
@@ -183,8 +186,9 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, onNext, ne
             </View>
 
             <View style={consentStyles.infoGrid}>
-              <InfoTile icon="clock" label="Scheduled" value={patient?.scheduledTime || '—'} />
-              <InfoTile icon="phone" label="Phone" value={patient?.phone || 'N/A'} />
+              {/* Full rows: a number with its country code is cut off in half a row. */}
+              <InfoTile icon="clock" label="Scheduled" value={patient?.scheduledTime || '—'} wide />
+              <InfoTile icon="phone" label="Phone" value={patient?.phone || 'N/A'} wide />
               <InfoTile icon="pulse" label="Issue" value={patient?.issue || '—'} wide />
             </View>
 
@@ -519,7 +523,7 @@ const modalStyles = createDoctorStyles({
 // ------------------------------------------------------------------
 // MAIN SCREEN
 // ------------------------------------------------------------------
-export default function DoctorDashboard({ navigation }) {
+export default function DoctorDashboard({ navigation, route }) {
   // Full-screen form Modals pad by these directly: SafeAreaView inside a
   // Modal (its own Android window) can report 0 insets.
   const modalInsets = useSafeAreaInsets();
@@ -596,6 +600,7 @@ export default function DoctorDashboard({ navigation }) {
   const [activeSession, setActiveSession] = useState(null);
   const [vitalsOpen, setVitalsOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const doctorAvailability = useDoctorAvailability(doctorId);
   // Today's cancelled / no-show appointments. The server decides these now
   // (web: "queue membership is determined by server status, never session
   // time") — the app no longer cancels anyone on its own.
@@ -1256,12 +1261,20 @@ export default function DoctorDashboard({ navigation }) {
   // ---- derived queue / stats (same formulas as web) ------------------
   const activeAppt = activeSession?.appt || null;
   const onBreak = activeSession?.status === 'break';
-  // Every queue tab uses the web order (emergency → slot time → token), so the
-  // first Pending card — and the Next Patient card — is the next one to call.
+  // Every queue tab uses the same order (emergency → token, see
+  // compareByToken; Pending also goes session by session), so the first
+  // Pending card — and the Next Patient card — is the next one to call.
   // Queue membership comes from the server status only (web parity).
   const liveAppointments = appointments;
   const cancelledQueue = sortByToken(cancelledToday.filter((appt) => appt.id !== activeAppt?.id));
-  const pendingAppointments = sortByToken(liveAppointments.filter(isDoctorPendingAppointment));
+  // Pending runs session by session (the doctor's availability ranges), by
+  // token inside each, and shows each session's range above it.
+  const nowDate = new Date(now);
+  const sessionOptions = { nowMinutes: nowDate.getHours() * 60 + nowDate.getMinutes(), today: formatLocalDateKey(nowDate) };
+  const pendingSections = groupQueueBySession(
+    sortByToken(liveAppointments.filter(isDoctorPendingAppointment)), getQueueSlotInfo, doctorAvailability, sessionOptions,
+  );
+  const pendingAppointments = pendingSections.flatMap((section) => section.rows);
   const inProgressAppointments = [
     // The patient currently being seen stays on top.
     ...(activeAppt ? [activeAppt] : []),
@@ -1312,12 +1325,19 @@ export default function DoctorDashboard({ navigation }) {
     : activeTab === 'In Progress' ? inProgressAppointments
       : activeTab === 'Next' ? skippedAppointments
         : activeTab === 'Cancelled' ? cancelledQueue : pendingAppointments;
+  // Pending and In Progress are split by session; other tabs are one list.
+  const visibleSections = activeTab === 'Pending' ? pendingSections
+    : activeTab === 'In Progress' ? groupQueueBySession(visibleQueue, getQueueSlotInfo, doctorAvailability, sessionOptions)
+      : [{ key: 'all', rows: visibleQueue }];
   // "Up Next" on the break screen is the next patient to call: the top of
   // Pending. The patient already being seen and patients moved to Next
   // (they haven't come) are not "up next".
   const nextPatient = pendingAppointments.find((appt) => appt.id !== activeAppt?.id && appt.availability?.status !== 'unavailable') || null;
-  // A break pauses the queue, so there must be a queue to pause.
-  const canTakeBreak = Boolean(activeAppt) || liveAppointments.length > 0;
+  // A break pauses the queue, so there must be a queue to pause. Patients
+  // reception marked unavailable can't be seen, so they don't count: with
+  // Pending empty and only unavailable patients in Next, there is no break.
+  const canTakeBreak = Boolean(activeAppt)
+    || liveAppointments.some((appt) => appt.availability?.status !== 'unavailable');
   const totalToday = liveAppointments.length + completed.length;
   const averageConsultMin = completed.length
     ? Math.max(1, Math.round(completed.reduce((sum, appt) => sum + (appt.durationMs || 0), 0) / completed.length / 60000))
@@ -1400,6 +1420,30 @@ export default function DoctorDashboard({ navigation }) {
   const openNotifications = () => {
     openScreen('notifications');
   };
+
+  // A notification tap (in-app list or push): open the screen it is about.
+  // An appointment opens the Appointments list scrolled to and highlighting it.
+  const [appointmentsFocusId, setAppointmentsFocusId] = useState(null);
+  const openFromNotification = useCallback((target, appointmentId = null) => {
+    if (!target) { openScreen('notifications'); return; }
+    if (target === 'appointment') {
+      setAppointmentsFocusId(appointmentId || null);
+      openScreen('appointments');
+      return;
+    }
+    openScreen(target);
+  }, [openScreen]);
+  // The focus is for that one opening only.
+  useEffect(() => {
+    if (activeScreen !== 'appointments') setAppointmentsFocusId(null);
+  }, [activeScreen]);
+  // A push tapped while the app was closed or in the background arrives as a
+  // route param (notificationService → navigate('DoctorDashboard', …)).
+  const pushOpen = route?.params?.notificationOpen;
+  useEffect(() => {
+    if (pushOpen?.at) openFromNotification(pushOpen.target, pushOpen.appointmentId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pushOpen?.at]);
 
   const handleSidebarNavigate = (item) => {
     const nextScreen = sidebarRoutes[item];
@@ -1520,7 +1564,7 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'appointments') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <AppointmentsListScreen onBack={goBack} />
+          <AppointmentsListScreen key={appointmentsFocusId || 'appointments'} onBack={goBack} focusAppointmentId={appointmentsFocusId} />
         </SafeAreaView>
       );
     }
@@ -1596,7 +1640,7 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'notifications') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <NotificationsScreen onBack={goBack} />
+          <NotificationsScreen onBack={goBack} onOpen={openFromNotification} />
         </SafeAreaView>
       );
     }
@@ -1670,7 +1714,7 @@ export default function DoctorDashboard({ navigation }) {
             <Pressable
               onPress={() => (canTakeBreak
                 ? setBreakModalVisible(true)
-                : Alert.alert('No appointments', 'There are no appointments in your queue today, so there is nothing to pause.'))}
+                : Alert.alert('No appointments', 'There are no available patients in your queue right now, so there is nothing to pause.'))}
               style={[styles.breakButton, !canTakeBreak && styles.breakButtonDisabled]}
             >
               <AppIcon name="coffee" size={15} strokeWidth={2} color="#B45309" />
@@ -1739,12 +1783,15 @@ export default function DoctorDashboard({ navigation }) {
               <Text style={styles.emptyHint}>Appointments in this queue will show up here.</Text>
             </View>
           ) : (
-            <ResponsiveGrid minItemWidth={350} maxColumns={2}>{visibleQueue.map((item, index) => (
+            visibleSections.map((section) => (
+              <View key={section.key}>
+                {section.kind ? <QueueSlotHeader range={section} /> : null}
+                <ResponsiveGrid minItemWidth={350} maxColumns={2}>{section.rows.map((item) => (
               <AppointmentCard
                 key={`${activeTab}-${item.id}`}
                 item={item}
                 isActive={activeAppt?.id === item.id}
-                highlight={index === 0}
+                highlight={item.id === visibleQueue[0]?.id}
                 showStart={shouldShowStart(item)}
                 canStart={canStartAppointment(item)}
                 sessionBusy={Boolean(activeSession?.appt)}
@@ -1758,7 +1805,9 @@ export default function DoctorDashboard({ navigation }) {
                 missedCallCount={missedCallCount(item)}
                 needsNext={item.availability?.status === 'unavailable' || needsCallNext(item)}
               />
-            ))}</ResponsiveGrid>
+                ))}</ResponsiveGrid>
+              </View>
+            ))
           )}
         </ScrollView>
       );

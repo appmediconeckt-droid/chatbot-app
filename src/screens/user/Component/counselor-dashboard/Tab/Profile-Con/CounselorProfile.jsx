@@ -38,8 +38,8 @@ import { useToast } from '../../../../../../components/common/ToastProvider';
 import { DOCTOR } from '../../../../../../theme/palette';
 import toImageUri from '../../../../../../utils/imageUri';
 import {
-  getPhoneLengthLabel,
   isValidMobileNumber,
+  phoneNumberError,
   formatPhoneNumber,
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
@@ -1186,8 +1186,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       editedData.phoneCountryCode,
     );
     if (!isValidMobileNumber(normalizedPhone, editedData.phoneCountryCode)) {
-      const expectedLength = getPhoneLengthLabel(editedData.phoneCountryCode);
-      showErrorPopup(`Phone number must be ${expectedLength} digits`, 'Invalid Phone Number');
+      showErrorPopup(phoneNumberError(normalizedPhone, editedData.phoneCountryCode), 'Invalid Phone Number');
       return;
     }
 

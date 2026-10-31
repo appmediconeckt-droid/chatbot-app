@@ -58,7 +58,7 @@ const FAQS = [
   },
 ];
 
-export default function DoctorHelpSupportScreen({ onBack, onOpenNotifications, onOpenPrivacySecurity }) {
+export default function DoctorHelpSupportScreen({ onBack }) {
   const [openFaq, setOpenFaq] = useState(null);
 
   const toggleFaq = (index) => {
@@ -104,11 +104,6 @@ export default function DoctorHelpSupportScreen({ onBack, onOpenNotifications, o
     { icon: 'warning', label: 'Report a Problem', sub: 'Sends app & device details', onPress: reportProblem },
     { icon: 'refresh', label: 'Check for Updates', sub: `Version ${APP_VERSION}`, onPress: checkForUpdates },
   ];
-
-  const shortcuts = [
-    onOpenNotifications && { icon: 'bell', title: 'Notification Preferences', subtitle: 'Not getting alerts? Check these first', onPress: onOpenNotifications },
-    onOpenPrivacySecurity && { icon: 'shield', title: 'Privacy & Security', subtitle: 'Password, app lock and this device', onPress: onOpenPrivacySecurity },
-  ].filter(Boolean);
 
   return (
     <View style={s.screen}>
@@ -158,28 +153,6 @@ export default function DoctorHelpSupportScreen({ onBack, onOpenNotifications, o
           })}
         </View>
 
-        {shortcuts.length > 0 && (
-          <>
-            <Text style={s.sectionLabel}>Related Settings</Text>
-            <View style={s.card}>
-              {shortcuts.map((row, index) => (
-                <Pressable
-                  key={row.title}
-                  onPress={row.onPress}
-                  style={({ pressed }) => [s.row, index === shortcuts.length - 1 && s.rowLast, pressed && s.rowPressed]}
-                >
-                  <View style={s.rowIcon}><AppIcon name={row.icon} size={18} color="#0D9488" strokeWidth={1.9} /></View>
-                  <View style={s.flex}>
-                    <Text style={s.rowTitle}>{row.title}</Text>
-                    <Text style={s.rowSubtitle}>{row.subtitle}</Text>
-                  </View>
-                  <AppIcon name="chevron-right" size={18} color="#9AA6B8" strokeWidth={2} />
-                </Pressable>
-              ))}
-            </View>
-          </>
-        )}
-
         <View style={s.contactCard}>
           <Text style={s.contactTitle}>Contact</Text>
           <Pressable onPress={() => mailTo('Doctor support request')} style={s.contactRow} hitSlop={4}>
@@ -200,7 +173,6 @@ export default function DoctorHelpSupportScreen({ onBack, onOpenNotifications, o
 
 const s = createDoctorStyles({
   screen: { flex: 1, backgroundColor: '#FFFFFF' },
-  flex: { flex: 1 },
   pressed: { opacity: 0.85 },
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
@@ -235,12 +207,7 @@ const s = createDoctorStyles({
   faqA: { fontSize: 13, lineHeight: 19, color: '#475467', marginTop: 8 },
   chevronOpen: { transform: [{ rotate: '180deg' }] },
 
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#EEF1F5' },
   rowLast: { borderBottomWidth: 0 },
-  rowPressed: { backgroundColor: '#F7F9FC' },
-  rowIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: '#DCFCFF', alignItems: 'center', justifyContent: 'center' },
-  rowTitle: { fontSize: 14.5, fontWeight: '700', color: '#17243A' },
-  rowSubtitle: { fontSize: 12, color: '#667085', marginTop: 2 },
 
   contactCard: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 14, padding: 14, gap: 10 },
   contactTitle: { fontSize: 14, fontWeight: '800', color: '#17243A' },

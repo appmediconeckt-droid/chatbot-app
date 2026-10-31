@@ -4,7 +4,6 @@ import React, { useRef, useState } from 'react';
 import { Alert, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import Text from '../../../../components/TranslatedText';
-import VitalsSummary from '../../../../components/VitalsSummary';
 import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -127,7 +126,8 @@ const defaultFollowUpDate = (medicines, patient) => {
 };
 
 // Every consultation — in-clinic, walk-in, video or voice — completes through
-// this full form: vitals, diagnosis, medicines, advice, notes and follow-up.
+// this full form: diagnosis, medicines, advice, notes and follow-up. Vitals
+// are not shown here (they stay on the consultation card and the record).
 // Diagnosis, advice and every medicine are required, so the prescription is
 // always recorded (and downloadable as PDF) before a visit is marked complete.
 export default function CompleteAppointmentScreen({ patient, onCancel, onSave }) {
@@ -247,10 +247,6 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
           <View><Text translate={false} style={styles.patientName}>{patient.name}</Text><Text style={styles.patientId}>{getTokenLabel(patient)}</Text></View>
           <View style={styles.badge}><Text style={styles.badgeText}>{isVisit ? modeInfo.label.toUpperCase() : 'CONSULTATION'}</Text></View>
         </View>
-
-        {/* Vitals are recorded by the receptionist, or by the doctor from the
-            consultation card — this form only shows what was recorded. */}
-        <VitalsSummary appointment={patient} title="Recorded patient vitals" />
 
         <SectionTitle>Diagnosis *</SectionTitle>
         <TextInput style={styles.textArea} placeholder="Enter detailed diagnosis..." placeholderTextColor="#8D96A6" multiline textAlignVertical="top" value={diagnosis} onChangeText={setDiagnosis} />

@@ -28,6 +28,18 @@ const normalizeRole = (role) => {
   return normalized || 'user';
 };
 
+// A call with a doctor (a consultation video / voice call from the doctor's
+// dashboard). The history marks the other side's account type in `withType`;
+// older rows only say who started the call.
+const isDoctorCall = (call) =>
+  [
+    call?.withType,
+    call?.withRole,
+    call?.with?.role,
+    call?.participantType,
+    call?.role === 'receiver' ? call?.initiatorType : call?.receiverType,
+  ].some((value) => String(value || '').trim().toLowerCase() === 'doctor');
+
 const normalizeCallType = (value) => {
   const normalized = String(value || 'video').trim().toLowerCase();
   if (normalized === 'audio' || normalized === 'voice') return 'voice';
@@ -277,9 +289,9 @@ const CallHistory = () => {
               call.withUser?.id ||
               call.participant?._id ||
               call.participant?.id,
-            counterPartyType: normalizeRole(
-              call.withType || call.receiverType || call.participantType || 'counsellor',
-            ),
+            counterPartyType: isDoctorCall(call)
+              ? 'doctor'
+              : normalizeRole(call.withType || call.receiverType || call.participantType || 'counsellor'),
             role: call.role,
             timestamp,
             apiCallData: call,
@@ -404,9 +416,17 @@ const CallHistory = () => {
     [currentUserId, currentUserType],
   );
 
+  // A patient's call history lists their counsellor calls only; calls with a
+  // doctor belong to that consultation (web CallHistory does the same). The
+  // quick-call buttons below use this list too, so they never ring a doctor.
+  const visibleCalls = useMemo(
+    () => callsData.filter((call) => currentUserType !== 'user' || call.counterPartyType !== 'doctor'),
+    [callsData, currentUserType],
+  );
+
   const filteredCalls = useMemo(
     () =>
-      callsData
+      visibleCalls
         .filter((call) => {
           if (activeFilter === 'all') return true;
           if (activeFilter === 'missed') return call.missed;
@@ -417,7 +437,7 @@ const CallHistory = () => {
         .filter((call) =>
           String(call.name || '').toLowerCase().includes(searchTerm.toLowerCase()),
         ),
-    [activeFilter, callsData, searchTerm],
+    [activeFilter, visibleCalls, searchTerm],
   );
 
   const groupedCalls = useMemo(() => {
@@ -442,20 +462,20 @@ const CallHistory = () => {
   );
 
   const openNewVideoCall = useCallback(() => {
-    if (!callsData.length) {
+    if (!visibleCalls.length) {
       setCallError('No recent contacts found. Start a chat first.');
       return;
     }
-    startCallFromHistory('video', callsData[0]).catch(() => { });
-  }, [callsData, startCallFromHistory]);
+    startCallFromHistory('video', visibleCalls[0]).catch(() => { });
+  }, [visibleCalls, startCallFromHistory]);
 
   const openNewVoiceCall = useCallback(() => {
-    if (!callsData.length) {
+    if (!visibleCalls.length) {
       setCallError('No recent contacts found. Start a chat first.');
       return;
     }
-    startCallFromHistory('voice', callsData[0]).catch(() => { });
-  }, [callsData, startCallFromHistory]);
+    startCallFromHistory('voice', visibleCalls[0]).catch(() => { });
+  }, [visibleCalls, startCallFromHistory]);
 
   const closeCallModals = useCallback(() => {
     setIsVideoModalOpen(false);

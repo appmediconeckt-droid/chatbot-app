@@ -5,7 +5,9 @@ import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 
 // Measure the actual overlap: Android may resize the window or cover it.
 // Padding the outer frame shrinks its children without counting a resize twice.
-export function KeyboardSafeArea({ children, style, onLayout, ...props }) {
+// `safeTop={false}`: the screen sits under an app header that already clears
+// the status bar, so no status-bar inset is added on top.
+export function KeyboardSafeArea({ children, style, onLayout, safeTop = true, ...props }) {
   const frameRef = useRef(null);
   const keyboardTopRef = useRef(null);
   const [overlap, setOverlap] = useState(0);
@@ -40,7 +42,7 @@ export function KeyboardSafeArea({ children, style, onLayout, ...props }) {
       {...props}
       ref={frameRef}
       collapsable={false}
-      style={[style, styles.area, { paddingTop: Math.max(top, insets.top + 8), paddingBottom: bottom + overlap }]}
+      style={[style, styles.area, { paddingTop: safeTop ? Math.max(top, insets.top + 8) : top, paddingBottom: bottom + overlap }]}
       onLayout={event => { measure(); onLayout?.(event); }}
     >
       {children}

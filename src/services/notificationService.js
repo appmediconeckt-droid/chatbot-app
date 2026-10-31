@@ -377,6 +377,26 @@ export const registerBackgroundNotificationHandler = () => {
   }
 };
 
+// Doctors: the server names the patient by their anonymous name ("hjsk
+// requested an appointment…"); show the real name the receptionist and the
+// queue show. Gives up after a few seconds so the push is never held back.
+const withDoctorRealPatientName = async (data, title, body) => {
+  const appointmentId = data?.appointmentId || data?.appointment_id;
+  if (!appointmentId) return { title, body };
+  try {
+    const role = String((await AsyncStorage.getItem('userRole')) || '').toLowerCase();
+    if (role !== 'doctor') return { title, body };
+    // Required here, not at the top: this file loads before the app does.
+    const { realNameNotificationText } = require('../features/doctor/dashboard/api/doctorAppointments');
+    return await Promise.race([
+      realNameNotificationText(appointmentId, { title, body }),
+      new Promise(resolve => setTimeout(() => resolve({ title, body }), 4000)),
+    ]);
+  } catch {
+    return { title, body };
+  }
+};
+
 /** Show an FCM message as a real device notification. */
 export const displaySystemNotification = async remoteMessage => {
   const notificationApi = getNotifeeApi();
@@ -393,12 +413,13 @@ export const displaySystemNotification = async remoteMessage => {
     remoteMessage?.notification?.title ||
     remoteMessage?.data?.title ||
     'Humaeli';
-  const body =
+  let body =
     remoteMessage?.notification?.body ||
     remoteMessage?.data?.body ||
     remoteMessage?.data?.message ||
     remoteMessage?.data?.content ||
     'You have a new notification';
+  ({ title, body } = await withDoctorRealPatientName(remoteMessage?.data, title, body));
 
   const data = Object.fromEntries(
     Object.entries(remoteMessage?.data || {}).map(([key, value]) => [
@@ -978,6 +999,22 @@ export const handleNotificationNavigation = async (
         counselor: getNotificationPerson(data, 'counsellor'),
       });
     }
+    return;
+  }
+
+  // Doctors: the dashboard opens the screen the push is about (an appointment
+  // request opens that appointment). 'MyAppointments' is the patient's screen.
+  const role = String((await AsyncStorage.getItem('userRole')) || '').toLowerCase();
+  if (role === 'doctor') {
+    const { doctorNotificationTarget } = require('../features/doctor/dashboard/api/doctorNotifications');
+    const appointmentId = data.appointmentId || data.appointment_id || null;
+    navigation?.navigate('DoctorDashboard', {
+      notificationOpen: {
+        target: doctorNotificationTarget({ type: data.type, actionUrl: data.actionUrl, title: data.title, appointmentId }),
+        appointmentId,
+        at: Date.now(),
+      },
+    });
     return;
   }
 

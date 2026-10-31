@@ -5,12 +5,13 @@
 // printed to an A4 PDF by the native PrescriptionPrint module:
 //   "Prescription" (24pt, navy) → Prescribing doctor / Date / Patient /
 //   Gender | Consultation for → Diagnosis → medicines table (navy header,
-//   striped rows) → Advice → Additional notes → Recommended tests →
+//   striped rows) → Advice → Recommended tests →
 //   Follow-up → Issued by. Helvetica, 18mm side margins.
 import { Alert, NativeModules } from 'react-native';
 import RNFS from 'react-native-fs';
 import { buildSimplePdf, saveAndOpenPdf } from './prescriptionPdf';
-import { medicineTiming, medicineDuration, buildConsultationDocumentHtml, followUpText, shortRxNumber } from '../../../../utils/consultationPrescriptionDocument';
+import { medicineTiming, medicineDuration, buildConsultationDocumentHtml, followUpText } from '../../../../utils/consultationPrescriptionDocument';
+import { withBookingQr } from '../../../../utils/prescriptionBookingQr';
 export { medicineTiming, medicineDuration } from '../../../../utils/consultationPrescriptionDocument';
 
 const str = value => value === null || value === undefined ? '' : String(value);
@@ -38,7 +39,7 @@ export async function downloadConsultationPrescriptionPdf(data = {}) {
     ].filter(Boolean).join('_');
     const nativePdf = NativeModules.PrescriptionPrint;
     if (nativePdf?.createPdf) {
-      const path = await nativePdf.createPdf(buildConsultationDocumentHtml(data), fileName);
+      const path = await nativePdf.createPdf(buildConsultationDocumentHtml(await withBookingQr(data)), fileName);
       if (path && typeof path === 'string' && await RNFS.exists(path)) {
         // Re-downloading the same visit replaces its earlier copy.
         await saveAndOpenPdf(path, fileName, { replace: true });
@@ -57,25 +58,22 @@ export async function downloadConsultationPrescriptionPdf(data = {}) {
       ...[data.clinic, data.address].filter(has).length ? [[data.clinic, data.address].filter(has).join(', ')] : [],
       ...[data.doctorPhone, data.doctorEmail].filter(has).length ? [[data.doctorPhone, data.doctorEmail].filter(has).join('   |   ')] : [],
       '',
-      [`Date: ${str(data.date)}`, has(data.opd) && `Token: #${data.opd}`, has(data.prescriptionId) && `Rx No.: ${shortRxNumber(data.prescriptionId)}`].filter(Boolean).join('   |   '),
+      [`Date: ${str(data.date)}`, has(data.opd) && `Token: #${data.opd}`, has(data.prescriptionId) && `Prescription No.: ${data.prescriptionId}`].filter(Boolean).join('   |   '),
       '',
       `PATIENT: ${str(data.patient)}`,
       ...[
         ['Age / Gender', [has(data.age) && `${data.age} yrs`, has(data.gender) && data.gender].filter(Boolean).join(' / ')],
         ['Contact', data.phone],
         ['Weight', data.weight],
-        ['Allergies', data.allergies],
-        ['Patient ID', data.patientId],
       ].filter(([, value]) => has(value)).map(([label, value]) => `${label}: ${str(value)}`),
       ...section('Consultation for', data.issue),
       ...section('Diagnosis', data.diagnosis),
       '', 'PRESCRIBED MEDICINES',
       ...((data.medicines || []).length
-        ? data.medicines.map((m, index) => `${index + 1}. ${[m.name || m.medicine, m.strength, m.dosage, medicineTiming(m), medicineDuration(m), m.instructions].filter(has).join('  -  ')}`)
+        ? data.medicines.map((m, index) => `${index + 1}. ${[m.name || m.medicine, m.dosage, medicineTiming(m), medicineDuration(m), m.instructions].filter(has).join('  -  ')}`)
         : [has(data.medicine) ? str(data.medicine) : 'No medicines prescribed.']),
       ...((data.tests || []).length ? ['', 'RECOMMENDED TESTS', ...data.tests.map(test => `- ${test.testName || test.name || 'Test'}${[test.completeBy && ` (by ${test.completeBy})`, test.reason && ` - ${test.reason}`, test.instructions && ` - ${test.instructions}`].filter(Boolean).join('')}`)] : []),
       ...section('Advice & instructions', data.advice),
-      ...(data.notes !== data.advice ? section('Additional notes', data.notes) : []),
       ...(followUp !== 'No follow-up scheduled' ? ['', `NEXT FOLLOW-UP: ${followUp}`] : []),
       '', '', `Issued by: ${str(data.doctor)}`,
       ...(has(data.qualification) ? [str(data.qualification)] : []),

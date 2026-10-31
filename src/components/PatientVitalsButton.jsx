@@ -15,6 +15,7 @@ const INK = '#1D2939';
 const MUTED = '#667085';
 
 const FIELDS = [
+  { key: 'blood_group', label: 'Blood group', unit: '', icon: 'water', fg: '#B42318', bg: '#FEF3F2' },
   { key: 'blood_pressure', label: 'Blood pressure', unit: 'mmHg', icon: 'heart-outline', fg: '#D92D20', bg: '#FEF0EF' },
   { key: 'pulse', label: 'Pulse', unit: 'bpm', icon: 'pulse-outline', fg: '#C11574', bg: '#FDF0F7' },
   { key: 'temperature', label: 'Temperature', unit: '°C', icon: 'thermometer-outline', fg: '#DC6803', bg: '#FFF4E8' },
@@ -165,7 +166,7 @@ function VitalTiles({ vitals = {}, fields }) {
             <Text style={s.tileLabel} numberOfLines={1}>{field.label}</Text>
             <Text translate={false} style={s.tileValue} numberOfLines={1} adjustsFontSizeToFit>
               {String(vitals[field.key])}
-              <Text translate={false} style={s.tileUnit}>{unit.startsWith('/') || unit.startsWith('°') || unit === '%' ? unit : ` ${unit}`}</Text>
+              {!!unit && <Text translate={false} style={s.tileUnit}>{unit.startsWith('/') || unit.startsWith('°') || unit === '%' ? unit : ` ${unit}`}</Text>}
             </Text>
           </View>
         );

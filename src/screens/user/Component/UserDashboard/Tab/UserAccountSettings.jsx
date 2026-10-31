@@ -319,21 +319,9 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
   }
 
   return (
-    <KeyboardSafeArea style={s.container}>
+    // The dashboard's own header already clears the status bar.
+    <KeyboardSafeArea style={s.container} safeTop={false}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-
-      <View style={s.header}>
-        <View style={s.headerCopy}>
-          <Text style={s.headerTitle}>{t('settings:settings', 'Settings')}</Text>
-          <Text style={s.headerSub} numberOfLines={1}>{t('Manage your account, password and privacy')}</Text>
-        </View>
-        {/* Android's LinearGradient ignores borderRadius unless a parent clips it. */}
-        <View style={s.headerIconClip}>
-          <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={s.headerIcon}>
-            <Ionicons name="settings-outline" size={20} color="#ffffff" />
-          </LinearGradient>
-        </View>
-      </View>
 
       <KeyboardSafeScroll
         style={s.scroll}
@@ -341,6 +329,18 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
         contentContainerStyle={s.scrollContent}
         scrollIndicatorInsets={{ right: 1 }}
       >
+        {/* Scrolls with the page. Android's LinearGradient ignores
+            borderRadius unless a parent clips it. */}
+        <View style={s.headerClip}>
+          <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={s.header}>
+            <View style={[s.headerBubble, s.headerBubbleLarge]} />
+            <View style={[s.headerBubble, s.headerBubbleSmall]} />
+            <Text style={s.headerEyebrow}>{t('YOUR ACCOUNT')}</Text>
+            <Text style={s.headerTitle}>{t('settings:settings', 'Settings')}</Text>
+            <Text style={s.headerSub}>{t('Manage your account, password and privacy')}</Text>
+          </LinearGradient>
+        </View>
+
         <View style={s.section}>
           <Text style={s.sectionTitle}>{t('ACCOUNT INFO')}</Text>
 
@@ -701,30 +701,14 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9F9FF', paddingTop: 0 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 2,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E8ECF3',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  headerCopy: { flex: 1, minWidth: 0 },
-  headerTitle: { fontSize: 20, lineHeight: 24, fontWeight: '800', color: '#0f172a', includeFontPadding: false },
-  headerSub: { fontSize: 12.5, lineHeight: 16, color: '#64748b', marginTop: 2, includeFontPadding: false },
-  headerIconClip: { width: 40, height: 40, borderRadius: 12, overflow: 'hidden' },
-  headerIcon: { flex: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  headerClip: { borderRadius: 18, overflow: 'hidden', marginBottom: 14 },
+  header: { paddingVertical: 18, paddingHorizontal: 18 },
+  headerBubble: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' },
+  headerBubbleLarge: { width: 140, height: 140, top: -50, right: -30 },
+  headerBubbleSmall: { width: 70, height: 70, bottom: -28, right: 70 },
+  headerEyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.4, color: 'rgba(255,255,255,0.8)', includeFontPadding: false },
+  headerTitle: { fontSize: 24, lineHeight: 29, fontWeight: '800', color: '#ffffff', marginTop: 4, includeFontPadding: false },
+  headerSub: { fontSize: 13, lineHeight: 18, color: 'rgba(255,255,255,0.9)', marginTop: 4, includeFontPadding: false },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 96 },
 

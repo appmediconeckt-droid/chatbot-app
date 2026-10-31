@@ -112,20 +112,30 @@ const settleBlockedReason = (tx, payout) => {
 };
 const settleBlocked = (tx, payout) => Boolean(settleBlockedReason(tx, payout));
 
+// Icon for the bank settlement strip at the foot of a card.
+const SETTLEMENT_ICONS = {
+  pending: 'hourglass-outline',
+  available: 'wallet-outline',
+  settled: 'checkmark-circle',
+  processing: 'sync-outline',
+  held: 'alert-circle-outline',
+  failed: 'close-circle-outline',
+  refunded: 'return-down-back',
+  completed: 'checkmark-circle',
+};
+
 function TransactionCard({ tx, money, onPress, payout, settling, onSettle }) {
   const meta = TYPE_META[tx.type] || TYPE_META.adjustment;
+  const status = STATUS_META[tx.status] || STATUS_META.completed;
   const isPayment = tx.type === 'payment';
-  const sign = tx.signedAmount < 0 ? '−' : '+';
   const initials = isPayment ? initialsOf(tx.patientName) : '';
-  // Under the name, as in the web table: the split, the transaction
-  // reference and the bank settlement state.
-  const details = [
-    (isPayment || tx.type === 'refund') && tx.gross > 0 ? `${tx.type === 'refund' ? 'Refunded' : 'Patient paid'} ${money(tx.gross)}` : '',
-    (isPayment || tx.type === 'refund') && tx.platformFee > 0 ? `Platform fee ${money(tx.platformFee)}` : '',
-    tx.bankAccount,
-    tx.reference ? '' : appointmentLabel(tx),
-  ].filter(Boolean);
+  // The full split (patient paid, platform fee) is in the detail sheet.
+  const appointment = appointmentLabel(tx);
+  // Bank settlement state (web column); skipped when it would only repeat the
+  // pill, and for pending (the Pending pill already says it).
   const settlement = SETTLEMENT_LABELS[tx.status];
+  const showSettlement = Boolean(settlement) && settlement !== status.label && tx.status !== 'pending';
+  const blockedReason = canSettleTx(tx) ? settleBlockedReason(tx, payout) : '';
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.card, pressed && s.cardPressed]}>
       <View style={s.cardHead}>
@@ -140,28 +150,40 @@ function TransactionCard({ tx, money, onPress, payout, settling, onSettle }) {
             {[formatShortDateTime(tx.createdAt), methodLabel(tx.method)].filter(Boolean).join('  ·  ')}
           </Text>
         </View>
-        <View style={s.cardRight}>
-          <Text translate={false} style={[s.cardAmount, { color: amountColor(tx) }]}>{sign}{money(Math.abs(tx.signedAmount))}</Text>
-          <StatusPill status={tx.status} />
-        </View>
+        <StatusPill status={tx.status} />
       </View>
-      {(details.length > 0 || !!tx.reference || !!settlement) && (
-        <View style={s.cardFoot}>
-          <View style={s.flex}>
-            {details.length > 0 && <Text translate={false} style={s.cardFootText} numberOfLines={1}>{details.join('  ·  ')}</Text>}
-            {!!tx.reference && (
-              <Text translate={false} style={s.cardRef} numberOfLines={1} ellipsizeMode="middle">Txn ID  {tx.reference}</Text>
-            )}
-            {!!settlement && (
-              <View style={s.settleRow}>
-                <Ionicons name={tx.status === 'settled' ? 'checkmark-circle' : tx.status === 'held' ? 'alert-circle-outline' : 'business-outline'} size={12} color={(STATUS_META[tx.status] || STATUS_META.completed).color} />
-                <Text style={s.settleText} numberOfLines={1}>{settlement}</Text>
-              </View>
-            )}
-          </View>
-          <Ionicons name="chevron-forward" size={14} color="#98A2B3" />
+
+      {(!!tx.reference || !!appointment || !!tx.bankAccount) && (
+        <View style={s.refRow}>
+          {!!tx.reference && (
+            <View style={[s.refChip, s.refChipGrow]}>
+              <Ionicons name="receipt-outline" size={12} color="#475467" />
+              <Text style={s.refLabel}>Txn ID</Text>
+              <Text translate={false} style={s.refValue} numberOfLines={1} ellipsizeMode="middle">{tx.reference}</Text>
+            </View>
+          )}
+          {!!appointment && (
+            <View style={s.refChip}>
+              <Ionicons name="calendar-outline" size={12} color="#475467" />
+              <Text translate={false} style={s.refValue} numberOfLines={1}>{appointment}</Text>
+            </View>
+          )}
+          {!!tx.bankAccount && (
+            <View style={[s.refChip, s.refChipGrow]}>
+              <Ionicons name="business-outline" size={12} color="#475467" />
+              <Text translate={false} style={s.refValue} numberOfLines={1}>{tx.bankAccount}</Text>
+            </View>
+          )}
         </View>
       )}
+
+      {showSettlement && (
+        <View style={[s.settleStrip, { backgroundColor: status.bg }]}>
+          <Ionicons name={SETTLEMENT_ICONS[tx.status] || 'business-outline'} size={14} color={status.color} />
+          <Text style={[s.settleText, { color: status.color }]} numberOfLines={1}>{settlement}</Text>
+        </View>
+      )}
+
       {canSettleTx(tx) && (
         <Pressable
           onPress={() => onSettle(tx)}
@@ -178,10 +200,72 @@ function TransactionCard({ tx, money, onPress, payout, settling, onSettle }) {
             )}
         </Pressable>
       )}
-      {canSettleTx(tx) && !!settleBlockedReason(tx, payout) && (
-        <Text style={s.cardSettleHint}>{settleBlockedReason(tx, payout)}</Text>
+      {!!blockedReason && (
+        <View style={s.cardSettleHintRow}>
+          <Ionicons name="information-circle-outline" size={13} color="#667085" />
+          <Text style={s.cardSettleHint}>{blockedReason}</Text>
+        </View>
       )}
     </Pressable>
+  );
+}
+
+const labelOf = (options, key) => options.find((option) => option.key === key)?.label || options[0]?.label || '';
+
+// Dropdown field for a list filter: shows the chosen option, opens FilterSheet.
+function FilterSelect({ icon, label, value, active, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}`}
+      style={({ pressed }) => [s.filterSelect, active && s.filterSelectActive, pressed && s.cardPressed]}
+    >
+      <Ionicons name={icon} size={15} color={active ? '#0F766E' : '#667085'} />
+      <View style={s.flex}>
+        <Text style={s.filterLabel}>{label}</Text>
+        <Text style={[s.filterValue, active && s.filterValueActive]} numberOfLines={1}>{value}</Text>
+      </View>
+      <Ionicons name="chevron-down" size={16} color={active ? '#0F766E' : '#98A2B3'} />
+    </Pressable>
+  );
+}
+
+// Bottom sheet listing a filter's options; picking one closes it.
+function FilterSheet({ visible, title, options, value, onSelect, onClose }) {
+  if (!visible) return null;
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={s.sheetBackdrop}>
+        <Pressable style={s.flex} onPress={onClose} />
+        <View style={s.sheet}>
+          <View style={s.sheetHandle} />
+          <View style={s.sheetHead}>
+            <Text style={[s.sheetTitle, s.flex]}>{title}</Text>
+            <Pressable onPress={onClose} style={s.sheetClose} hitSlop={8} accessibilityLabel="Close">
+              <Ionicons name="close" size={18} color="#344054" />
+            </Pressable>
+          </View>
+          <View style={s.sheetBody}>
+            {options.map((option) => {
+              const selected = option.key === value;
+              return (
+                <Pressable
+                  key={option.key}
+                  onPress={() => { onSelect(option.key); onClose(); }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  style={({ pressed }) => [s.option, selected && s.optionSelected, pressed && s.cardPressed]}
+                >
+                  <Text style={[s.optionText, selected && s.optionTextSelected]}>{option.label}</Text>
+                  {selected && <Ionicons name="checkmark-circle" size={19} color="#0D9488" />}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -285,6 +369,8 @@ export default function DoctorEarningsScreen({ onBack }) {
   const [testMode, setTestMode] = useState(false);
   const [settlement, setSettlement] = useState(null);
   const [settlingId, setSettlingId] = useState('');
+  // Which filter dropdown is open: 'period', 'status' or null.
+  const [picker, setPicker] = useState(null);
   const visible = useMemo(() => transactions.filter((tx) => matchesSearch(tx, search)), [transactions, search]);
   // Only the latest request may write: a slow answer for an old filter must
   // not replace the rows of the one now shown.
@@ -417,27 +503,22 @@ export default function DoctorEarningsScreen({ onBack }) {
         )}
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
-        {PERIODS.map((p) => {
-          const active = period === p.key;
-          return (
-            <Pressable key={p.key} onPress={() => setPeriod(p.key)} style={[s.chip, active && s.chipActive]}>
-              <Text style={[s.chipText, active && s.chipTextActive]}>{p.label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs}>
-        {STATUS_FILTERS.map((f) => {
-          const active = status === f.key;
-          return (
-            <Pressable key={f.key} onPress={() => setStatus(f.key)} style={[s.tab, active && s.tabActive]} accessibilityRole="tab" accessibilityState={{ selected: active }}>
-              <Text style={[s.tabText, active && s.tabTextActive]} numberOfLines={1}>{f.label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <View style={s.filters}>
+        <FilterSelect
+          icon="calendar-outline"
+          label="Period"
+          value={labelOf(PERIODS, period)}
+          active={period !== 'all'}
+          onPress={() => setPicker('period')}
+        />
+        <FilterSelect
+          icon="funnel-outline"
+          label="Status"
+          value={labelOf(STATUS_FILTERS, status)}
+          active={status !== 'all'}
+          onPress={() => setPicker('status')}
+        />
+      </View>
 
       {!!error && <Text style={s.error}>{error}</Text>}
     </>
@@ -503,6 +584,22 @@ export default function DoctorEarningsScreen({ onBack }) {
         settling={Boolean(settlingId) && settlingId === selected?.id}
         onSettle={settle}
       />
+      <FilterSheet
+        visible={picker === 'period'}
+        title="Period"
+        options={PERIODS}
+        value={period}
+        onSelect={setPeriod}
+        onClose={() => setPicker(null)}
+      />
+      <FilterSheet
+        visible={picker === 'status'}
+        title="Status"
+        options={STATUS_FILTERS}
+        value={status}
+        onSelect={setStatus}
+        onClose={() => setPicker(null)}
+      />
     </View>
   );
 }
@@ -540,32 +637,34 @@ const s = createDoctorStyles({
   listHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   sectionTitle: { fontSize: 15.5, fontWeight: '800', color: '#101828' },
   listCount: { fontSize: 11.5, fontWeight: '800', color: '#475467', backgroundColor: '#EAECF0', paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, overflow: 'hidden' },
-  chips: { gap: 6, paddingBottom: 8 },
-  chip: { height: 30, paddingHorizontal: 12, borderRadius: 15, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E4E7EC', alignItems: 'center', justifyContent: 'center' },
-  chipActive: { backgroundColor: '#101828', borderColor: '#101828' },
-  chipText: { fontSize: 12, fontWeight: '600', color: '#475467' },
-  chipTextActive: { color: '#FFF' },
+  filters: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  filterSelect: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, height: 48, paddingHorizontal: 11, borderRadius: 12, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E4E7EC' },
+  filterSelectActive: { borderColor: '#99E2D8', backgroundColor: '#F0FDFA' },
+  filterLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.3, textTransform: 'uppercase', color: '#98A2B3' },
+  filterValue: { fontSize: 13.5, fontWeight: '700', color: '#101828', marginTop: 1 },
+  filterValueActive: { color: '#0F766E' },
+  option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: 12, borderRadius: 12, marginBottom: 4 },
+  optionSelected: { backgroundColor: '#F0FDFA' },
+  optionText: { fontSize: 14.5, fontWeight: '600', color: '#344054' },
+  optionTextSelected: { fontWeight: '800', color: '#0F766E' },
 
-  tabs: { gap: 18, paddingHorizontal: 2, marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E4E7EC' },
-  tab: { paddingTop: 6, paddingBottom: 9, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabActive: { borderBottomColor: '#0D9488' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#667085' },
-  tabTextActive: { color: '#0F766E', fontWeight: '800' },
-
-  card: { backgroundColor: '#FFF', borderRadius: 14, borderWidth: 1, borderColor: '#EAECF0', paddingHorizontal: 13, paddingVertical: 12, marginBottom: 8 },
+  card: {
+    backgroundColor: '#FFF', borderRadius: 14, borderWidth: 1, borderColor: '#EAECF0', paddingHorizontal: 12, paddingVertical: 11, marginBottom: 8,
+    shadowColor: '#101828', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 1 }, elevation: 1,
+  },
   cardPressed: { backgroundColor: '#F9FAFB' },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  avatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 13.5, fontWeight: '800' },
-  cardTitle: { fontSize: 14.5, fontWeight: '700', color: '#101828' },
-  cardSub: { fontSize: 12, color: '#667085', marginTop: 2 },
-  cardRight: { alignItems: 'flex-end', gap: 4 },
-  cardAmount: { fontSize: 15, fontWeight: '800' },
-  cardFoot: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingTop: 9, borderTopWidth: 1, borderTopColor: '#F2F4F7' },
-  cardFootText: { fontSize: 11.5, color: '#667085' },
-  cardRef: { fontSize: 11.5, color: '#344054', fontWeight: '600', marginTop: 3 },
-  settleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
-  settleText: { flex: 1, fontSize: 11.5, color: '#475467' },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 13, fontWeight: '800' },
+  cardTitle: { fontSize: 14, fontWeight: '800', color: '#101828' },
+  cardSub: { fontSize: 11.5, color: '#667085', marginTop: 2 },
+  refRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
+  refChip: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '100%', height: 24, paddingHorizontal: 8, borderRadius: 7, backgroundColor: '#F2F4F7' },
+  refChipGrow: { flexShrink: 1 },
+  refLabel: { fontSize: 10.5, fontWeight: '700', color: '#667085' },
+  refValue: { flexShrink: 1, fontSize: 11, fontWeight: '700', color: '#344054' },
+  settleStrip: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8 },
+  settleText: { flex: 1, fontSize: 11.5, fontWeight: '700' },
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 42, paddingHorizontal: 12, borderRadius: 12, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E4E7EC', marginBottom: 10 },
   searchInput: { flex: 1, fontSize: 13.5, color: '#101828', paddingVertical: 0 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
@@ -595,9 +694,10 @@ const s = createDoctorStyles({
   detailStrong: { fontSize: 15, fontWeight: '800', color: '#047857' },
   settleButton: { height: 46, borderRadius: 12, backgroundColor: '#0D9488', alignItems: 'center', justifyContent: 'center', marginTop: 14 },
   settleButtonDisabled: { opacity: 0.45 },
-  cardSettle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 38, borderRadius: 10, borderWidth: 1, borderColor: '#99E2D8', backgroundColor: '#F0FDFA', marginTop: 10 },
-  cardSettleText: { fontSize: 13, fontWeight: '800', color: '#0F766E' },
-  cardSettleHint: { fontSize: 11.5, color: '#667085', textAlign: 'center', marginTop: 5 },
+  cardSettle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 34, borderRadius: 9, borderWidth: 1, borderColor: '#99E2D8', backgroundColor: '#F0FDFA', marginTop: 8 },
+  cardSettleText: { fontSize: 12.5, fontWeight: '800', color: '#0F766E' },
+  cardSettleHintRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 5 },
+  cardSettleHint: { flexShrink: 1, fontSize: 11, color: '#667085' },
   settleButtonText: { fontSize: 14.5, fontWeight: '800', color: '#FFF' },
   settleHint: { fontSize: 12, lineHeight: 17, color: '#667085', textAlign: 'center', marginTop: 8 },
   modeRow: { flexDirection: 'row', marginBottom: 10 },

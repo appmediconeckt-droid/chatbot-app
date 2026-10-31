@@ -57,7 +57,9 @@ describe('doctor earnings screen', () => {
     expect(all).toMatch(/#A12/);
     expect(all).toMatch(/Bank settlement completed/);
     expect(all).toMatch(/HDFC ••1234/);
-    expect(all).toMatch(/Patient paid ₹500 {2}· {2}Platform fee ₹50/);
+    // The split lives in the detail sheet; the compact card has no breakdown box.
+    expect(all).not.toMatch(/Your share/);
+    expect(all).not.toMatch(/Patient paid/);
     expect(all).not.toMatch(/How your earnings move/);
   });
 
@@ -96,10 +98,35 @@ describe('doctor earnings screen', () => {
     ] } });
     const tree = await render();
     const all = texts(tree).join(' | ');
-    expect(all).toMatch(/Txn ID {2}wallet_abc/);
-    expect(all).toMatch(/Pending appointment completion/);
+    expect(all).toMatch(/Txn ID \| wallet_abc/);
+    // The Pending pill says it; the card has no extra "Pending appointment completion" strip.
+    expect(all).not.toMatch(/Pending appointment completion/);
     expect(all).toMatch(/Bank settlement completed/);
     await act(async () => { tree.root.findByType('TextInput').props.onChangeText('pay_x'); });
+    expect(texts(tree)).toContain('Ravi');
+    expect(texts(tree)).not.toContain('Asha Rao');
+  });
+
+  it('filters by period and status from dropdowns instead of chips', async () => {
+    api.get.mockResolvedValue({ data: { summary: {}, transactions: [
+      { id: 'p1', patient: 'Asha Rao', paymentId: 'pay_a', method: 'upi', gross: 300, net: 240, status: 'pending' },
+      { id: 'p2', patient: 'Ravi', paymentId: 'pay_b', method: 'upi', gross: 500, net: 500, status: 'settled' },
+    ] } });
+    const tree = await render();
+    const select = (label) => tree.root.find((n) => n.type === 'Pressable' && n.props.accessibilityLabel?.startsWith(`${label}:`));
+    expect(select('Period').props.accessibilityLabel).toBe('Period: All time');
+    expect(select('Status').props.accessibilityLabel).toBe('Status: All');
+    // No chip row: "Last 7 days" only appears once the period dropdown opens.
+    expect(texts(tree)).not.toContain('Last 7 days');
+
+    await act(async () => { select('Status').props.onPress(); });
+    expect(tree.root.findAllByType('Modal')).toHaveLength(1);
+    const settled = tree.root.find((n) => n.type === 'Pressable' && n.props.accessibilityRole === 'radio'
+      && n.findAll((c) => c.type === 'Text' && textOf(c) === 'Settled').length > 0);
+    await act(async () => { settled.props.onPress(); });
+
+    expect(tree.root.findAllByType('Modal')).toHaveLength(0);
+    expect(select('Status').props.accessibilityLabel).toBe('Status: Settled');
     expect(texts(tree)).toContain('Ravi');
     expect(texts(tree)).not.toContain('Asha Rao');
   });

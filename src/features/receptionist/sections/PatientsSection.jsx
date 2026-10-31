@@ -109,6 +109,7 @@ export default function PatientsSection({ refreshKey }) {
   const [selected, setSelected] = useState(null);       // visit whose prescription is shown
   const [picker, setPicker] = useState(null); // 'from' | 'to' | 'clinic' | 'source'
   const [downloading, setDownloading] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(''); // visit card whose PDF is downloading
   const [downloadError, setDownloadError] = useState('');
 
   useEffect(() => {
@@ -203,17 +204,32 @@ export default function PatientsSection({ refreshKey }) {
     }
   };
 
+  // Download straight from a visit card in the history list.
+  const downloadVisit = async (row) => {
+    if (downloadingId) return;
+    setDownloadingId(row.id);
+    setDownloadError('');
+    try {
+      await downloadConsultationPrescriptionPdf(rxFor(row));
+    } catch {
+      setDownloadError('Prescription PDF could not be downloaded. Please retry.');
+    } finally {
+      setDownloadingId('');
+    }
+  };
+
   const shown = patients.slice((currentPage - 1) * LIST_PAGE_SIZE, currentPage * LIST_PAGE_SIZE);
   const clinics = data?.clinics || [];
-  const rx = selected ? appointmentToDocument({
-    patient: selected.patient,
-    doctorProfile: selected.doctor || data?.doctor,
-    clinic: clinics.find(clinic => String(clinic._id || clinic.id) === String(selected.clinicId)),
-    date: selected.checkedDate,
-    token: selected.token,
-    diagnosis: selected.diagnosis,
-    ...selected.prescription,
-  }, doctorFor(selected)) : null;
+  const rxFor = (row) => (row ? appointmentToDocument({
+    patient: row.patient,
+    doctorProfile: row.doctor || data?.doctor,
+    clinic: clinics.find(clinic => String(clinic._id || clinic.id) === String(row.clinicId)),
+    date: row.checkedDate,
+    token: row.token,
+    diagnosis: row.diagnosis,
+    ...row.prescription,
+  }, doctorFor(row)) : null);
+  const rx = rxFor(selected);
 
   return (
     <>
@@ -377,7 +393,7 @@ export default function PatientsSection({ refreshKey }) {
                     <Ionicons name="close" size={20} color={REC.ink} />
                   </Pressable>
                 </View>
-                <ScrollView style={s.sheetScroll} contentContainerStyle={s.rxContent} showsVerticalScrollIndicator={false}>
+                <ScrollView style={[s.sheetScroll, s.rxScroll]} contentContainerStyle={s.rxContent} showsVerticalScrollIndicator={false}>
                   <View style={s.rxVisit}>
                     <View style={s.rxVisitTop}>
                       <View style={[s.rxSourceTag, { backgroundColor: sourceStyle(selected.source).bg }]}>
@@ -420,7 +436,7 @@ export default function PatientsSection({ refreshKey }) {
                           <Text style={s.rxDocSub}>Medicines, tests and follow-up for this visit</Text>
                         </View>
                       </View>
-                      <ConsultationPrescriptionDocument data={rx} />
+                      <ConsultationPrescriptionDocument data={rx} bleed={18} />
                     </>
                   ) : (
                     // An empty prescription page says nothing useful — show why instead.
@@ -441,57 +457,43 @@ export default function PatientsSection({ refreshKey }) {
               </>
             ) : !!openPatient && (
               <>
+                <PatientProfileHeader patient={openPatient.patient} onClose={closeSheet} />
+                <View style={s.summaryRow}>
+                  <SummaryTile icon="calendar-outline" tone="teal" value={openPatient.visits.length} label={openPatient.visits.length === 1 ? 'Visit' : 'Visits'} />
+                  <SummaryTile icon="document-text-outline" tone="purple" value={openPatient.prescriptions} label={openPatient.prescriptions === 1 ? 'Prescription' : 'Prescriptions'} />
+                  <SummaryTile icon="time-outline" tone="blue" value={dateLabel(openPatient.latest.checkedDate)} label="Last visit" />
+                </View>
                 <AlertBox text={downloadError} />
-                <View style={[s.sheetHead, s.patientSheetHead]}>
-                  <View style={[s.avatar, s.avatarLarge]}>
-                    <Text translate={false} style={[s.avatarText, s.avatarTextLarge]}>{initials(openPatient.patient.name)}</Text>
+                <View style={s.historyHeading}>
+                  <View style={s.historyIcon}>
+                    <Ionicons name="time" size={16} color={REC.primary} />
                   </View>
                   <View style={s.flex}>
-                    <Text style={s.sheetEyebrow}>PATIENT VISITS</Text>
-                    <Text translate={false} style={s.sheetName}>{openPatient.patient.name || 'Patient'}</Text>
-                    <Text translate={false} style={s.muted}>{formatPhoneNumber(openPatient.patient.phoneNumber || openPatient.patient.phone, openPatient.patient.phoneCountryCode) || 'Phone not recorded'}</Text>
-                  </View>
-                  <Pressable onPress={closeSheet} style={s.close} hitSlop={8}>
-                    <Ionicons name="close" size={20} color={REC.ink} />
-                  </Pressable>
-                </View>
-                <View style={s.summaryRow}>
-                  <SummaryPill value={openPatient.visits.length} label={openPatient.visits.length === 1 ? 'Visit' : 'Visits'} />
-                  <SummaryPill value={openPatient.prescriptions} label={openPatient.prescriptions === 1 ? 'Prescription' : 'Prescriptions'} />
-                  <SummaryPill value={dateLabel(openPatient.latest.checkedDate)} label="Last visit" />
-                </View>
-                {(openPatient.patient.age != null || !!openPatient.patient.gender) && <View style={s.demographics}>
-                  <Text translate={false} style={s.muted}>
-                    {[openPatient.patient.age != null ? `Age: ${openPatient.patient.age}` : '', openPatient.patient.gender].filter(Boolean).join(' · ')}
-                  </Text>
-                </View>}
-                <View style={s.historyHeading}>
-                  <Text style={s.historyTitle}>Visit history</Text>
-                  <View style={s.historySort}>
-                    <Ionicons name="time-outline" size={13} color={REC.muted} />
-                    <Text style={s.historySortText}>Latest first</Text>
+                    <View style={s.historyTitleRow}>
+                      <Text style={s.historyTitle}>Visit history</Text>
+                      <View style={s.historyCount}>
+                        <Text translate={false} style={s.historyCountText}>{openPatient.visits.length}</Text>
+                      </View>
+                    </View>
+                    <Text style={s.historyHint}>Latest visit first</Text>
                   </View>
                 </View>
                 <ScrollView style={s.sheetScroll} contentContainerStyle={s.visitsContent} showsVerticalScrollIndicator={false}>
-                  <View style={s.vTable}>
-                    <View style={s.vHead}>
-                      <Text style={[s.vHeadText, s.vColDate]}>DATE</Text>
-                      <Text style={[s.vHeadText, s.flex]}>VISIT</Text>
-                      <Text style={s.vHeadText}>RX</Text>
-                    </View>
-                    {openPatient.visits.map((row, index) => (
-                      <VisitCard
-                        key={row.id}
-                        row={row}
-                        doctor={doctorFor(row)}
-                        when={visitWhen(row)}
-                        last={index === openPatient.visits.length - 1}
-                        onPress={() => openVisit(row)}
-                        opening={openingId === row.id}
-                        disabled={Boolean(openingId)}
-                      />
-                    ))}
-                  </View>
+                  {openPatient.visits.map((row, index) => (
+                    <VisitCard
+                      key={row.id}
+                      latest={index === 0}
+                      row={row}
+                      doctor={doctorFor(row)}
+                      clinic={row.source === 'prescription' ? '' : clinicName(clinics, row.clinicId)}
+                      when={visitWhen(row)}
+                      onView={() => openVisit(row)}
+                      onDownload={() => downloadVisit(row)}
+                      opening={openingId === row.id}
+                      downloading={downloadingId === row.id}
+                      disabled={Boolean(openingId || downloadingId)}
+                    />
+                  ))}
                 </ScrollView>
               </>
             )}
@@ -502,47 +504,132 @@ export default function PatientsSection({ refreshKey }) {
   );
 }
 
-// One compact table row per visit; tapping it opens the full prescription.
-function VisitCard({ row, doctor, when, last, onPress, opening, disabled }) {
+// Who the visits belong to: avatar, name, phone and age / gender.
+function PatientProfileHeader({ patient, onClose }) {
+  const phone = formatPhoneNumber(patient.phoneNumber || patient.phone, patient.phoneCountryCode);
+  const facts = [
+    patient.age != null && patient.age !== '' ? `${patient.age} yrs` : '',
+    patient.gender ? statusLabel(patient.gender) : '',
+  ].filter(Boolean);
+  return (
+    <View style={s.profile}>
+      <LinearGradient colors={['#12756D', '#25B887']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.profileAvatar}>
+        <Text translate={false} style={s.profileAvatarText}>{initials(patient.name)}</Text>
+      </LinearGradient>
+      <View style={s.flex}>
+        <Text style={s.sheetEyebrow}>PATIENT VISITS</Text>
+        <Text translate={false} style={s.sheetName} numberOfLines={1}>{patient.name || 'Patient'}</Text>
+        <View style={s.profileFacts}>
+          <View style={s.profileFact}>
+            <Ionicons name="call-outline" size={12} color={REC.muted} />
+            <Text translate={false} style={s.profileFactText}>{phone || 'Phone not recorded'}</Text>
+          </View>
+          {facts.map((fact) => (
+            <View key={fact} style={s.profileChip}>
+              <Text translate={false} style={s.profileChipText}>{fact}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+      <Pressable onPress={onClose} style={s.close} hitSlop={8} accessibilityLabel="Close">
+        <Ionicons name="close" size={20} color={REC.ink} />
+      </Pressable>
+    </View>
+  );
+}
+
+// A compact card per visit: date, time, token and visit type; the diagnosis
+// only when the doctor recorded one; doctor and clinic; then View / Download
+// prescription. View opens the full prescription.
+function VisitCard({ row, latest, doctor, clinic, when, onView, onDownload, opening, downloading, disabled }) {
   const src = sourceStyle(row.source);
   const prescription = appointmentToDocument(row.prescription);
   const date = dateLabel(row.checkedDate || row.checkedAt);
-  const [day, month] = date === 'Not recorded' ? ['--', ''] : date.split(' ');
   const time = row.checkedAt ? displayTime(row.checkedAt) : row.appointmentTime || '';
-  const diagnosis = row.diagnosis || prescription.diagnosis;
+  // The prescription document fills a missing diagnosis with "—"; that is no diagnosis.
+  const diagnosis = [row.diagnosis, prescription.diagnosis]
+    .map((value) => String(value || '').trim())
+    .find((value) => value && !/^(—|-+|n\/?a|not recorded)$/i.test(value)) || '';
+  const kind = row.source === 'prescription' ? 'Prescription' : `${src.label} visit`;
+  const sub = [kind, time, row.token != null ? `Token #${row.token}` : ''].filter(Boolean).join('  ·  ');
+  const clinicShown = clinic && clinic !== 'Unassigned' ? clinic : '';
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      disabled={disabled}
-      accessibilityLabel={`View ${src.label} visit, ${when}`}
-      style={({ pressed }) => [s.vRow, !last && s.vRowDivider, pressed && s.vRowPressed]}
-    >
-      <View style={[s.vColDate, s.vDate]}>
-        <Text translate={false} style={s.vDay}>{day}</Text>
-        <Text translate={false} style={s.vMonth}>{month.toUpperCase()}</Text>
-      </View>
-      <View style={s.flex}>
-        <View style={s.vTitleRow}>
-          <View style={[s.vTag, { backgroundColor: src.bg }]}>
-            <Text translate={false} style={[s.vTagText, { color: src.fg }]}>{src.label}</Text>
-          </View>
-          {row.token != null && <Text translate={false} style={s.vMeta}>#{row.token}</Text>}
-          {!!time && <Text translate={false} style={s.vMeta}>{time}</Text>}
+    <View style={[s.visitCard, latest && s.visitCardLatest]}>
+      <View style={[s.visitAccent, { backgroundColor: src.fg }]} />
+      <View style={s.visitTop}>
+        <View style={[s.visitIcon, { backgroundColor: src.bg }]}>
+          <Ionicons name={src.icon} size={17} color={src.fg} />
         </View>
-        <Text translate={false} style={[s.vDiagnosis, !diagnosis && s.vDiagnosisEmpty]} numberOfLines={1}>
-          {diagnosis || 'Diagnosis not recorded'}
-        </Text>
-        <Text translate={false} style={s.vDoctor} numberOfLines={1}>{doctor}</Text>
+        <View style={s.flex}>
+          <View style={s.visitTitleRow}>
+            <Text translate={false} style={s.visitDate} numberOfLines={1}>{date === 'Not recorded' ? 'Date not recorded' : date}</Text>
+            {latest && (
+              <View style={s.latestBadge}>
+                <Text style={s.latestText}>LATEST</Text>
+              </View>
+            )}
+          </View>
+          <Text translate={false} style={s.visitSub} numberOfLines={1}>{sub}</Text>
+        </View>
       </View>
-      {opening && <ActivityIndicator size="small" color={REC.primary} />}
-      <Ionicons
-        name={row.hasPrescription ? 'document-text' : 'remove-circle-outline'}
-        size={17}
-        color={row.hasPrescription ? REC.primary : '#B8C2CC'}
-      />
-      <Ionicons name="chevron-forward" size={15} color="#A0AEBB" />
-    </Pressable>
+
+      {!!diagnosis && (
+        <View style={s.dxBox}>
+          <Ionicons name="pulse" size={14} color="#C2410C" />
+          <View style={s.flex}>
+            <Text style={s.dxLabel}>DIAGNOSIS</Text>
+            <Text translate={false} style={s.dxText} numberOfLines={2}>{diagnosis}</Text>
+          </View>
+        </View>
+      )}
+
+      <View style={s.visitPeople}>
+        <View style={s.visitMetaRow}>
+          <Ionicons name="person-circle-outline" size={14} color={REC.muted} />
+          <Text translate={false} style={s.visitMetaText} numberOfLines={1}>{doctor}</Text>
+        </View>
+        {!!clinicShown && (
+          <View style={s.visitMetaRow}>
+            <Ionicons name="business-outline" size={13} color={REC.muted} />
+            <Text translate={false} style={s.visitMetaText} numberOfLines={1}>{clinicShown}</Text>
+          </View>
+        )}
+      </View>
+
+      {row.hasPrescription ? (
+        <View style={s.visitActions}>
+          <Pressable
+            onPress={onView}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={`View ${src.label} visit prescription, ${when}`}
+            style={({ pressed }) => [s.visitBtn, pressed && s.visitBtnPressed, disabled && !opening && s.visitBtnDisabled]}
+          >
+            {opening
+              ? <ActivityIndicator size="small" color={REC.primary} />
+              : <Ionicons name="eye-outline" size={14} color={REC.primary} />}
+            <Text style={s.visitBtnText}>View prescription</Text>
+          </Pressable>
+          <Pressable
+            onPress={onDownload}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={`Download ${src.label} visit prescription, ${when}`}
+            style={({ pressed }) => [s.visitBtn, s.visitBtnPrimary, pressed && s.visitBtnPrimaryPressed, disabled && !downloading && s.visitBtnDisabled]}
+          >
+            {downloading
+              ? <ActivityIndicator size="small" color="#FFFFFF" />
+              : <Ionicons name="download-outline" size={14} color="#FFFFFF" />}
+            <Text style={[s.visitBtnText, s.visitBtnTextPrimary]}>{downloading ? 'Downloading...' : 'Download'}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={s.noRx}>
+          <Ionicons name="document-outline" size={14} color="#94A3B8" />
+          <Text style={s.noRxText}>No prescription was written for this visit</Text>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -609,11 +696,21 @@ function PatientCard({ group, doctor, onPress }) {
   );
 }
 
-function SummaryPill({ value, label }) {
+const TILE_TONES = {
+  teal: { bg: '#E7F4EE', fg: REC.primary },
+  purple: { bg: '#EFEAFE', fg: '#6A4FC4' },
+  blue: { bg: '#E8F1FF', fg: '#3975C7' },
+};
+
+function SummaryTile({ icon, tone, value, label }) {
+  const look = TILE_TONES[tone] || TILE_TONES.teal;
   return (
-    <View style={s.summaryPill}>
-      <Text translate={false} style={s.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{value}</Text>
-      <Text style={s.summaryLabel}>{label}</Text>
+    <View style={s.summaryTile}>
+      <View style={[s.summaryIcon, { backgroundColor: look.bg }]}>
+        <Ionicons name={icon} size={15} color={look.fg} />
+      </View>
+      <Text translate={false} style={s.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{value}</Text>
+      <Text style={s.summaryLabel} numberOfLines={1}>{label}</Text>
     </View>
   );
 }
@@ -634,23 +731,6 @@ const s = StyleSheet.create({
   filterRow: { flexDirection: 'row', gap: 12 },
   actionsWide: { justifyContent: 'flex-end' },
   applyWide: { flex: 0, minWidth: 200 },
-  vTable: { borderWidth: 1, borderColor: REC.line, borderRadius: 12, overflow: 'hidden', backgroundColor: '#FFFFFF' },
-  vHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: '#F6F8FA', borderBottomWidth: 1, borderBottomColor: REC.line },
-  vHeadText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#7C8B9A', marginRight: 18 },
-  vColDate: { width: 40 },
-  vRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: '#FFFFFF' },
-  vRowDivider: { borderBottomWidth: 1, borderBottomColor: '#EEF2F5' },
-  vRowPressed: { backgroundColor: '#F3F8F7' },
-  vDate: { alignItems: 'center', paddingVertical: 4, borderRadius: 8, backgroundColor: REC.soft },
-  vDay: { fontSize: 15, fontWeight: '800', color: REC.primary, lineHeight: 18 },
-  vMonth: { fontSize: 9.5, fontWeight: '700', color: REC.softText, letterSpacing: 0.5 },
-  vTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  vTag: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999 },
-  vTagText: { fontSize: 10.5, fontWeight: '700' },
-  vMeta: { fontSize: 11.5, fontWeight: '600', color: REC.muted },
-  vDiagnosis: { fontSize: 13, fontWeight: '700', color: REC.ink, marginTop: 3 },
-  vDiagnosisEmpty: { fontWeight: '500', color: '#94A3B8', fontStyle: 'italic' },
-  vDoctor: { fontSize: 11.5, color: REC.muted, marginTop: 1 },
   flex: { flex: 1, minWidth: 0 },
   inline: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   muted: { fontSize: 12.5, color: REC.muted },
@@ -674,10 +754,6 @@ const s = StyleSheet.create({
   patientTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   patientAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   patientAvatarText: { fontSize: 13.5, fontWeight: '800', color: '#FFFFFF' },
-  avatar: { width: 46, height: 46, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#BCDAD4', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 15, fontWeight: '800', color: REC.primary },
-  avatarLarge: { width: 56, height: 56, borderRadius: 18 },
-  avatarTextLarge: { fontSize: 20 },
   patientName: { fontSize: 15, fontWeight: '800', color: REC.ink },
   phoneText: { fontSize: 11.5, fontWeight: '500', color: REC.muted, marginTop: 1 },
   patientRight: { alignItems: 'flex-end', gap: 3 },
@@ -701,50 +777,68 @@ const s = StyleSheet.create({
   sheet: { width: '100%', maxWidth: 800, alignSelf: 'center', backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 18, paddingTop: 10, height: '90%', maxHeight: '90%' },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#D0D5DD', alignSelf: 'center', marginBottom: 14 },
   sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  patientSheetHead: { paddingVertical: 6 },
-  sheetName: { fontSize: 22, fontWeight: '700', color: REC.ink, marginBottom: 3 },
+  sheetName: { fontSize: 20, fontWeight: '800', color: REC.ink, marginBottom: 4 },
+  profile: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: REC.line },
+  profileAvatar: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  profileAvatarText: { fontSize: 19, fontWeight: '800', color: '#FFFFFF' },
+  profileFacts: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  profileFact: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 2 },
+  profileFactText: { fontSize: 12.5, fontWeight: '600', color: '#4B5B6B' },
+  profileChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: REC.line },
+  profileChipText: { fontSize: 11, fontWeight: '700', color: '#4B5B6B' },
+  summaryRow: { flexDirection: 'row', gap: 8, marginTop: 14, marginBottom: 4 },
+  summaryTile: { flex: 1, minWidth: 0, paddingVertical: 11, paddingHorizontal: 10, borderRadius: 14, backgroundColor: '#FAFCFC', borderWidth: 1, borderColor: REC.line },
+  summaryIcon: { width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  summaryValue: { fontSize: 16, lineHeight: 21, fontWeight: '800', color: REC.ink, fontVariant: ['tabular-nums'] },
+  summaryLabel: { fontSize: 11, fontWeight: '600', color: REC.muted, marginTop: 1 },
+  historyHeading: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 18, marginBottom: 2 },
+  historyIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  historyTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  historyTitle: { fontSize: 16.5, fontWeight: '800', color: REC.ink },
+  historyCount: { minWidth: 24, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999, backgroundColor: REC.primary, alignItems: 'center' },
+  historyCountText: { fontSize: 11.5, fontWeight: '800', color: '#FFFFFF' },
+  historyHint: { fontSize: 11.5, color: REC.muted, marginTop: 1 },
+  visitsContent: { paddingHorizontal: 2, paddingTop: 4, paddingBottom: 18 },
+  visitCard: {
+    marginBottom: 12, paddingLeft: 16, paddingRight: 13, paddingVertical: 13, borderRadius: 16, backgroundColor: '#FFFFFF',
+    borderWidth: 1, borderColor: '#E3EBEA', overflow: 'hidden',
+    shadowColor: '#0F3D38', shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2,
+  },
+  visitCardLatest: { borderColor: '#A8D8CC' },
+  visitAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
+  visitTop: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  visitIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  visitTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  visitDate: { flexShrink: 1, fontSize: 15, fontWeight: '800', color: REC.ink },
+  visitSub: { fontSize: 12, fontWeight: '600', color: REC.muted, marginTop: 2 },
+  latestBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, backgroundColor: '#E1F5EE', borderWidth: 1, borderColor: '#A8D8CC' },
+  latestText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6, color: REC.primary },
+  dxBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 11, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#FFF6EE', borderWidth: 1, borderColor: '#FBE0C8' },
+  dxLabel: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.8, color: '#C2410C' },
+  dxText: { fontSize: 13.5, lineHeight: 18, fontWeight: '700', color: '#3B2A1E', marginTop: 1 },
+  visitPeople: { marginTop: 10, gap: 4 },
+  visitMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  visitMetaText: { flexShrink: 1, fontSize: 12.5, fontWeight: '500', color: '#4B5B6B' },
+  visitActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF2F5' },
+  visitBtn: {
+    flex: 1, minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderRadius: 11, borderWidth: 1, borderColor: '#BFDDD6', backgroundColor: '#FFFFFF', paddingHorizontal: 8,
+  },
+  visitBtnPressed: { backgroundColor: REC.soft },
+  visitBtnPrimary: { backgroundColor: REC.primary, borderColor: REC.primary },
+  visitBtnPrimaryPressed: { backgroundColor: REC.primaryDark },
+  visitBtnDisabled: { opacity: 0.5 },
+  visitBtnText: { fontSize: 12.5, fontWeight: '700', color: REC.primary },
+  visitBtnTextPrimary: { color: '#FFFFFF' },
+  noRx: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: '#D5DDE5', backgroundColor: '#F8FAFB' },
+  noRxText: { fontSize: 12, fontWeight: '600', color: '#7C8B9A' },
   sheetEyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 1.3, color: REC.primary, marginBottom: 3 },
   close: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line, alignItems: 'center', justifyContent: 'center' },
-  summaryRow: { flexDirection: 'row', marginTop: 18, borderWidth: 1, borderColor: REC.line, borderRadius: 16, overflow: 'hidden' },
-  demographics: { marginTop: 10 },
-  summaryPill: { flex: 1, minWidth: 0, backgroundColor: '#FFFFFF', paddingVertical: 13, paddingHorizontal: 10, alignItems: 'center' },
-  summaryValue: { fontSize: 17, lineHeight: 23, fontWeight: '800', color: REC.ink, fontVariant: ['tabular-nums'] },
-  summaryLabel: { fontSize: 10.5, color: REC.muted, marginTop: 3, textAlign: 'center' },
-  historyHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginTop: 22, marginBottom: 2 },
-  historyTitle: { fontSize: 17, fontWeight: '700', color: REC.ink },
-  historySort: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  historySortText: { fontSize: 11, color: REC.muted },
-  visitsContent: { paddingHorizontal: 2, paddingTop: 2, paddingBottom: 16, gap: 16 },
-  visitCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE6E6', borderRadius: 20, padding: 16, shadowColor: '#173D35', shadowOpacity: 0.05, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  visitCardPressed: { borderColor: REC.primary, opacity: 0.8 },
-  visitTop: { flexDirection: 'row', alignItems: 'center', gap: 13, marginBottom: 18 },
-  visitDateTile: { width: 58, minHeight: 78, paddingVertical: 8, borderWidth: 1, borderTopWidth: 3, borderColor: '#DDE6E6', borderTopColor: REC.primary, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  visitDay: { fontSize: 25, lineHeight: 29, fontWeight: '800', color: REC.primary, fontVariant: ['tabular-nums'] },
-  visitMonth: { fontSize: 10, lineHeight: 15, fontWeight: '700', letterSpacing: 1, color: REC.ink },
-  visitYear: { fontSize: 10, lineHeight: 14, color: REC.muted },
-  visitTitle: { fontSize: 16, lineHeight: 22, fontWeight: '700', color: REC.ink },
-  visitTimeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
-  visitTime: { flexShrink: 1, fontSize: 12, lineHeight: 17, color: REC.muted },
-  visitToken: { alignSelf: 'flex-start', borderWidth: 1, borderColor: REC.line, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, marginTop: 8 },
-  visitTokenText: { fontSize: 10.5, fontWeight: '600', color: REC.primary },
-  visitInfo: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
-  visitInfoIcon: { width: 30, height: 30, borderWidth: 1, borderColor: REC.line, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-  visitInfoLabel: { fontSize: 10.5, color: REC.muted, marginBottom: 2 },
-  visitSub: { fontSize: 13, lineHeight: 19, fontWeight: '500', color: REC.ink },
-  visitDiagnosisBox: { borderTopWidth: 1, borderTopColor: REC.line, paddingTop: 14, marginTop: 2 },
-  visitDiagnosisLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1, color: REC.muted, marginBottom: 5 },
-  visitDiagnosis: { fontSize: 13.5, lineHeight: 20, fontWeight: '600', color: REC.ink },
-  visitFooter: { gap: 12, marginTop: 15 },
-  visitPrescriptionStatus: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 },
-  visitPrescriptionText: { flexShrink: 1, fontSize: 11.5, color: REC.muted },
-  prescriptionDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#A0AEBB' },
-  prescriptionDotAvailable: { backgroundColor: REC.primary },
-  visitPrescriptionAvailable: { color: REC.primary },
-  visitAction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, borderRadius: 12, paddingVertical: 11, paddingHorizontal: 12, backgroundColor: REC.primary },
-  visitActionText: { flexShrink: 1, fontSize: 12.5, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
 
-  visitMeta: { fontSize: 12.5, color: '#4A8875', marginTop: 8 },
   sheetScroll: { flex: 1, minHeight: 0, marginTop: 12 },
+  // Full-bleed scroll: the sheet's side padding moves inside, so the
+  // prescription page can spread to the edges without being clipped.
+  rxScroll: { marginHorizontal: -18 },
   sheetNotice: { marginTop: 4 },
   paperRow: { flexDirection: 'row', gap: 10 },
   field: { marginBottom: 12 },
@@ -752,7 +846,7 @@ const s = StyleSheet.create({
   fieldTitle: { fontSize: 11.5, fontWeight: '700', color: REC.muted, marginBottom: 3 },
   fieldValue: { fontSize: 13.5, color: REC.ink, lineHeight: 19 },
   rxSheetName: { fontSize: 20, fontWeight: '800', color: REC.ink },
-  rxContent: { paddingBottom: 20 },
+  rxContent: { paddingBottom: 20, paddingHorizontal: 18 },
   rxVisit: { padding: 13, borderRadius: 16, backgroundColor: '#F3FAF8', borderWidth: 1, borderColor: '#D7EEE8', gap: 10 },
   rxVisitTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   rxSourceTag: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },

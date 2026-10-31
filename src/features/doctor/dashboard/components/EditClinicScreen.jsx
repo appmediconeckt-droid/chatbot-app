@@ -18,7 +18,7 @@ import { feeCurrencyNeedsSave, loadDoctorFeeCurrency, saveDoctorFeeCurrency } fr
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 import useKeyboardLift from '../../../../hooks/useKeyboardLift';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
-import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
+import { buildInternationalPhoneNumber, isValidLocalPhoneNumber, phoneNumberError, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
 import ClinicFeeField, { cleanClinicFee, isValidClinicFee, profileFeeOf } from './ClinicFeeField';
 import { DEFAULT_COUNTRY, findCountry } from '../../../../utils/consultationCurrency';
 
@@ -106,7 +106,7 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
       return;
     }
     if (!isValidLocalPhoneNumber(phone, phoneCountryCode)) {
-      setError(`Enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number for ${phoneCountryCode}`);
+      setError(phoneNumberError(phone, phoneCountryCode, { mobile: false }));
       return;
     }
     if (!isValidClinicFee(fee, currency)) {

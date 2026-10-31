@@ -15,15 +15,19 @@ jest.mock('react-native', () => ({
   Platform: { OS: 'android', select: options => options.android },
   StyleSheet: { create: value => value }, useWindowDimensions: () => ({ width: 390, height: 844 }),
   Alert: { alert: jest.fn() },
+  Keyboard: { addListener: jest.fn(() => ({ remove: jest.fn() })) },
+  LayoutAnimation: { configureNext: jest.fn(), Types: { easeInEaseOut: 'easeInEaseOut' } },
 }));
 jest.mock('../src/components/TranslatedText', () => 'Text');
 jest.mock('../src/components/TranslatedTextInput', () => 'TextInput');
 jest.mock('react-native-linear-gradient', () => 'Gradient');
+jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn() }));
 jest.mock('../src/features/doctor/dashboard/icons/AppIcon', () => 'Icon');
 jest.mock('../src/axiosConfig', () => ({ __esModule: true, API_BASE_URL: 'https://example.test', default: { defaults: { baseURL: 'https://example.test' }, get: jest.fn() } }));
 jest.mock('../src/features/doctor/dashboard/utils/consultationPrescriptionPdf', () => ({ downloadConsultationPrescriptionPdf: jest.fn() }));
+jest.mock('../src/hooks/useKeyboardLift', () => ({ __esModule: true, default: () => [{ current: null }, 0] }));
 jest.mock('@react-native-community/datetimepicker', () => ({ __esModule: true, default: 'DateTimePicker', DateTimePickerAndroid: { open: jest.fn() } }));
 jest.mock('../src/hooks/useKeyboardAwareScroll', () => ({ __esModule: true, default: () => ({ scrollRef: { current: null }, frameInset: 0 }) }));
 
@@ -88,7 +92,9 @@ it('rejects invalid detail responses instead of showing a blank prescription', a
 it('shows the web sections/table and downloads the exact displayed record', async () => {
   await render(<ConsultationPrescriptionModal visible appointment={formatAppointment(raw)} doctorName="Dr. Meera" onClose={jest.fn()} />);
   const text = JSON.stringify(root.toJSON());
-  ['Prescribing doctor', 'Dr. Meera', 'Medicine name', 'Strength', 'Dosage', 'Instructions', 'Duration', 'Morning, Night', '5 Days', 'Recorded test', 'Recorded notes', 'No follow-up scheduled'].forEach(value => expect(text).toContain(value));
+  ['CONSULTING DOCTOR', 'Dr. Meera', 'Recorded medicine', 'Dosage', 'Instructions', 'Duration', 'Morning, Night', '5 Days', 'Recorded test', 'No follow-up scheduled'].forEach(value => expect(text).toContain(value));
+  // Additional notes are not part of the prescription.
+  expect(text).not.toContain('Recorded notes');
   await press('Download PDF');
   expect(downloadConsultationPrescriptionPdf).toHaveBeenCalledWith(expect.objectContaining({ doctor: 'Dr. Meera', medicines: [medicine], tests: [test], notes: 'Recorded notes' }));
 });
@@ -119,7 +125,7 @@ it('keeps printed document fields escaped and includes web test details', () => 
   const html = buildConsultationDocumentHtml({ ...appointmentToDocument(raw), advice: '<script>bad</script>' });
   expect(html).toContain('&lt;script&gt;bad&lt;/script&gt;');
   expect(html).toContain('Recorded instructions');
-  expect(html).toContain('Recorded notes');
+  expect(html).not.toContain('Recorded notes');
 });
 
 it('allows adding/removing recommended tests and submits all test fields with medicines', async () => {
@@ -164,7 +170,7 @@ it('retains every web letterhead, patient and medicine field in both patient vie
   expect(data).toMatchObject({
     doctor: 'Dr. Profile', qualification: 'MBBS, MD', specialization: 'Psychiatry', registration: 'REG-123',
     clinic: 'Test Clinic', address: 'Test Address', doctorPhone: '+91 1234567890', doctorEmail: 'doctor@example.test',
-    prescriptionId: 'rx-full', opd: '0', patientId: 'patient-123', age: '0', phone: '+91 9876543210', weight: '64',
+    prescriptionId: 'RX-FULL', opd: '0', patientId: 'patient-123', age: '0', phone: '+91 9876543210', weight: '64',
     allergies: 'Penicillin, Dust', signature: 'https://example.test/uploads/signature.png',
   });
   const patientData = doctorRxToDocument({ document: data, clinic: { name: 'Another Clinic' } });
@@ -173,7 +179,13 @@ it('retains every web letterhead, patient and medicine field in both patient vie
   await render(<ConsultationPrescriptionModal visible appointment={formatAppointment(detailed)} onClose={jest.fn()} />);
   const text = JSON.stringify(root.toJSON());
   const html = buildConsultationDocumentHtml(data);
-  ['Patient ID', 'Age / Gender', 'Contact No.', 'Weight', 'Allergies', 'Prescription No.', 'OPD / Token No.', 'Strength', 'Instructions', 'REG-123', 'patient-123', '500 mg', 'After food', 'Test Clinic', 'Penicillin, Dust'].forEach(value => {
+  // Neither the page nor the PDF shows the patient's id, allergies or a
+  // medicine strength.
+  ['Patient ID', 'patient-123', 'Strength', '500 mg', 'Allergies', 'Penicillin, Dust'].forEach(value => {
+    expect(text).not.toContain(value);
+    expect(html).not.toContain(value);
+  });
+  ['Age / Gender', 'Contact No.', 'Weight', 'Prescription No.', 'OPD / Token No.', 'Instructions', 'REG-123', 'After food', 'Test Clinic'].forEach(value => {
     expect(text).toContain(value);
     expect(html).toContain(value);
   });
@@ -212,10 +224,10 @@ it.each(['online', 'walkin'])('doctor %s PDF exactly matches the patient documen
 it('doctor patient Visit Details downloads the same complete document shown on screen', async () => {
   mockAppointment(detailed, { _id: 'doctor-1', ...detailed.doctorProfile });
   await render(<VisitDetailScreen patient={{ name: 'Full Patient' }} record={{ __raw: detailed, id: 'rx-full', date: '16 Oct 2026', doctor: 'Dr. Profile', medicines: [], tests: [] }} onBack={jest.fn()} />);
-  ['Prescription No.', 'REG-123', 'patient-123', '500 mg', 'After food'].forEach(value => expect(JSON.stringify(root.toJSON())).toContain(value));
+  ['Prescription No.', 'REG-123', 'After food'].forEach(value => expect(JSON.stringify(root.toJSON())).toContain(value));
   await press('Download Prescription');
   expect(downloadConsultationPrescriptionPdf).toHaveBeenCalledWith(expect.objectContaining({
-    prescriptionId: 'appointment:rx-full', patientId: 'patient-123', medicines: detailed.medicines, signature: 'https://example.test/uploads/signature.png',
+    prescriptionId: 'RX-RXFULL', patientId: 'patient-123', medicines: detailed.medicines, signature: 'https://example.test/uploads/signature.png',
   }));
 });
 

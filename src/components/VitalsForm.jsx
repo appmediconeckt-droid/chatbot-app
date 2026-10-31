@@ -1,10 +1,14 @@
 // The Add / Edit vitals form shared by the receptionist (before the checkup)
-// and the doctor (optionally, during the consultation): the same eight
-// readings with units, optional notes, and one Save button. The caller saves.
+// and the doctor (optionally, during the consultation): the blood group, the
+// same eight readings with units, optional notes, and one Save button. The
+// caller saves.
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from './TranslatedText';
+import { BLOOD_GROUPS, normalizeBloodGroup } from '../utils/appointmentVitals';
+
+export { BLOOD_GROUPS, normalizeBloodGroup };
 
 // [key, label, placeholder, unit, accent]
 export const VITAL_FIELDS = [
@@ -17,6 +21,12 @@ export const VITAL_FIELDS = [
   ['height', 'Height', '170', 'cm', '#64748B'],
   ['pain_score', 'Pain score', '0–10', '/10', '#E11D48'],
 ];
+
+// Blood group is picked, not typed. Clinic staff record it here; the patient
+// only sees it. [key, label, placeholder, unit, accent] like VITAL_FIELDS.
+export const BLOOD_GROUP_FIELD = ['blood_group', 'Blood group', '', '', '#DC2626'];
+// What read-only vitals views list: the blood group, then the readings.
+export const VITAL_DISPLAY_FIELDS = [BLOOD_GROUP_FIELD, ...VITAL_FIELDS];
 
 export const hasVital = (value) => value !== '' && value !== undefined && value !== null && String(value).trim() !== '';
 
@@ -34,17 +44,18 @@ export const canonicalVitals = (value) => {
     ...v,
     blood_pressure: v.blood_pressure ?? v.bp ?? v.bloodPressure ?? '',
     pulse: v.pulse ?? v.heartRate ?? v.heart_rate ?? '',
+    blood_group: normalizeBloodGroup(v.blood_group ?? v.bloodGroup),
   };
 };
 
 export const vitalsDraft = (value) => {
   const v = canonicalVitals(value);
-  return Object.fromEntries([...VITAL_FIELDS.map(([key]) => [key, v[key] ?? '']), ['notes', v.notes || '']]);
+  return Object.fromEntries([...VITAL_DISPLAY_FIELDS.map(([key]) => [key, v[key] ?? '']), ['notes', v.notes || '']]);
 };
 
 export const hasAnyVitals = (value) => {
   const v = canonicalVitals(value);
-  return VITAL_FIELDS.some(([key]) => hasVital(v[key]));
+  return VITAL_DISPLAY_FIELDS.some(([key]) => hasVital(v[key]));
 };
 
 // `onSubmit(draft)` saves and resolves; a rejection is shown under the form.
@@ -52,13 +63,14 @@ export default function VitalsForm({ initialVitals, onSubmit, onInputFocus, onBu
   const [draft, setDraft] = useState(() => vitalsDraft(initialVitals));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [bloodOpen, setBloodOpen] = useState(false);
   const saving = useRef(false);
   const inputRefs = useRef({});
 
   const save = async () => {
     if (saving.current) return;
-    if (!VITAL_FIELDS.some(([key]) => String(draft[key] ?? '').trim())) {
-      setError('Enter at least one measured vital.');
+    if (!VITAL_DISPLAY_FIELDS.some(([key]) => String(draft[key] ?? '').trim())) {
+      setError('Enter at least one measured vital or the blood group.');
       return;
     }
     saving.current = true;
@@ -80,6 +92,46 @@ export default function VitalsForm({ initialVitals, onSubmit, onInputFocus, onBu
   return (
     <View>
       <Text style={s.hint}>Fill in the readings you measured — every field is optional, but enter at least one.</Text>
+      <Text style={s.label}>Blood group</Text>
+      {/* A dropdown: the field shows the choice, tapping it lists the groups. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Blood group"
+        accessibilityState={{ expanded: bloodOpen, disabled: busy }}
+        disabled={busy}
+        onPress={() => { Keyboard.dismiss(); setBloodOpen((open) => !open); }}
+        style={[s.inputBox, s.bloodField, bloodOpen && { borderColor: color }]}
+      >
+        <Text translate={false} style={[s.bloodValue, !draft.blood_group && s.bloodPlaceholder]}>
+          {draft.blood_group || 'Select blood group'}
+        </Text>
+        <Ionicons name={bloodOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#728092" />
+      </Pressable>
+      {bloodOpen && (
+        <View style={s.bloodList}>
+          {['', ...BLOOD_GROUPS].map((group) => {
+            const active = (draft.blood_group || '') === group;
+            return (
+              <Pressable
+                key={group || 'none'}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={group ? `Blood group ${group}` : 'Blood group not recorded'}
+                onPress={() => {
+                  setDraft((current) => ({ ...current, blood_group: group }));
+                  setBloodOpen(false);
+                }}
+                style={({ pressed }) => [s.bloodOption, active && s.bloodOptionActive, pressed && s.bloodOptionPressed]}
+              >
+                <Text translate={false} style={[s.bloodOptionText, !group && s.bloodPlaceholder, active && { color }]}>
+                  {group || 'Not recorded'}
+                </Text>
+                {active && <Ionicons name="checkmark" size={18} color={color} />}
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
       <View style={s.grid}>
         {VITAL_FIELDS.map(([key, label, placeholder, unit]) => (
           <View key={key} style={s.cell}>
@@ -139,6 +191,14 @@ const s = StyleSheet.create({
   hint: { fontSize: 12.5, lineHeight: 18, color: '#728092', marginBottom: 14 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12 },
   cell: { width: '48.5%' },
+  bloodField: { justifyContent: 'space-between', marginBottom: 14 },
+  bloodValue: { fontSize: 15, fontWeight: '700', color: '#213547' },
+  bloodPlaceholder: { color: '#A6B1BE', fontWeight: '600' },
+  bloodList: { marginTop: -8, marginBottom: 14, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 11, backgroundColor: '#FFFFFF', overflow: 'hidden' },
+  bloodOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#F1F4F7' },
+  bloodOptionActive: { backgroundColor: '#F4FAF8' },
+  bloodOptionPressed: { backgroundColor: '#EEF2F5' },
+  bloodOptionText: { fontSize: 15, fontWeight: '700', color: '#344054' },
   label: { fontSize: 12, fontWeight: '700', color: '#475467', marginBottom: 6 },
   inputBox: { flexDirection: 'row', alignItems: 'center', minHeight: 46, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 11, backgroundColor: '#FFFFFF', paddingHorizontal: 12 },
   input: { flex: 1, minWidth: 0, paddingVertical: 10, color: '#213547', fontSize: 15, fontWeight: '600' },

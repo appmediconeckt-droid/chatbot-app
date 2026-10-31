@@ -30,9 +30,9 @@ import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import {
-  getPhoneLengthLabel,
   isValidMobileNumber,
   normalizeLocalPhoneNumber,
+  phoneNumberError,
 } from '../../utils/countryCodes';
 import {
   calculateAgeFromDateOfBirth,
@@ -263,7 +263,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone is required";
     else if (!isValidMobileNumber(formData.phoneNumber, formData.phoneCountryCode)) {
-      newErrors.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
+      newErrors.phoneNumber = phoneNumberError(formData.phoneNumber, formData.phoneCountryCode);
     }
 
     const calculatedAge = calculateAgeFromDateOfBirth(formData.dateOfBirth);

@@ -3,7 +3,6 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   Image,
   Modal,
   ActivityIndicator,
@@ -18,7 +17,6 @@ import {
 } from "react-native";
 import TextInput from '../../../../components/TranslatedTextInput';
 import Text from '../../../../components/TranslatedText';
-import PatientVitalsButton from '../../../../components/PatientVitalsButton';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Ionicons from "react-native-vector-icons/Ionicons";
@@ -40,11 +38,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getKeyboardLift, isButtonNavigation } from '../../../../utils/keyboardLift';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import {
-  getPhoneLengthLabel,
   buildInternationalPhoneNumber,
   formatPhoneNumber,
   isValidMobileNumber,
   normalizeLocalPhoneNumber,
+  phoneNumberError,
   splitInternationalPhoneNumber,
 } from '../../../../utils/countryCodes';
 import {
@@ -84,7 +82,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [showAvatarChooser, setShowAvatarChooser] = useState(false);
-  const [showBloodGroupDropdown, setShowBloodGroupDropdown] = useState(false);
   const [showDateOfBirthPicker, setShowDateOfBirthPicker] = useState(false);
   const [showNotification, setShowNotification] = useState({
     show: false,
@@ -152,7 +149,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
 
 
-  const bloodGroups = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
   const genders = ["Male", "Female", "Other"];
 
   const normalizeGender = (value) => {
@@ -676,7 +672,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       return {
         valid: false,
         title: "Phone number required",
-        message: `Please enter your ${getPhoneLengthLabel(editFormData.phoneCountryCode)} digit phone number.`,
+        message: "Please enter your phone number.",
       };
     }
 
@@ -684,7 +680,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       return {
         valid: false,
         title: "Invalid phone number",
-        message: `Please enter a valid ${getPhoneLengthLabel(editFormData.phoneCountryCode)} digit phone number.`,
+        message: phoneNumberError(normalizedPhone, editFormData.phoneCountryCode),
       };
     }
 
@@ -708,7 +704,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       return {
         valid: false,
         title: "Emergency phone required",
-        message: `Please enter emergency contact ${getPhoneLengthLabel(emergency.phoneCountryCode)} digit phone number.`,
+        message: "Please enter the emergency contact phone number.",
       };
     }
 
@@ -716,7 +712,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       return {
         valid: false,
         title: "Invalid emergency phone",
-        message: `Emergency contact phone must be ${getPhoneLengthLabel(emergency.phoneCountryCode)} digits.`,
+        message: phoneNumberError(emergencyPhone, emergency.phoneCountryCode),
       };
     }
 
@@ -877,7 +873,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
       formData.append("phoneCountryCode", editFormData.phoneCountryCode);
       formData.append("age", validation.calculatedAge.toString());
       formData.append("gender", editFormData.gender);
-      formData.append("bloodGroup", editFormData.bloodGroup);
       formData.append("dateOfBirth", validation.dateOfBirth);
 
       const addressObj = {
@@ -1075,13 +1070,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
       <View style={styles.statsRow}>
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>{t('profile:blood')}</Text>
-          <Text style={styles.statValue}>
-            {normalizeBloodGroup(patientData.personalInfo.bloodGroup) || "--"}
-          </Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
           <Text style={styles.statLabel}>{t('profile:age')}</Text>
           <Text style={styles.statValue}>{patientData.personalInfo.age || "--"}y</Text>
         </View>
@@ -1138,12 +1126,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
           <Text style={styles.infoLabel}>{t('profile:gender')}</Text>
           <Text style={styles.infoValue}>
             {patientData.personalInfo.gender || t('profile:notSpecified')}
-          </Text>
-        </View>
-        <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>{t('profile:bloodGroup')}</Text>
-          <Text style={styles.infoValue}>
-            {normalizeBloodGroup(patientData.personalInfo.bloodGroup) || t('profile:notSpecified')}
           </Text>
         </View>
         <View style={styles.infoItem}>
@@ -1425,18 +1407,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       })}
                     </View>
                   </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:bloodGroup')}</Text>
-                    <TouchableOpacity
-                      style={styles.dropdownButton}
-                      onPress={() => setShowBloodGroupDropdown(true)}
-                    >
-                      <Text style={styles.dropdownButtonText}>
-                        {editFormData.bloodGroup || "Select Blood Group"}
-                      </Text>
-                      <Ionicons name="chevron-down" size={20} color="#64748b" />
-                    </TouchableOpacity>
-                  </View>
                 </View>
 
                 <View style={styles.formGroup}>
@@ -1673,7 +1643,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
       >
         {renderNotification()}
         {renderProfileHeader()}
-        <PatientVitalsButton />
         <View style={[styles.locationCard, { width: responsiveContentWidth }]}>
           <View style={styles.locationCardLeft}>
             <Ionicons name="location-outline" size={20} color="#00652C" />
@@ -1706,71 +1675,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
         </View>
       </ScrollView>
       {renderEditModal()}
-
-      {/* Blood Group Dropdown Modal */}
-      <Modal
-        visible={showBloodGroupDropdown}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setShowBloodGroupDropdown(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setShowBloodGroupDropdown(false)}>
-          <View style={styles.dropdownOverlay}>
-            <View style={styles.dropdownContent}>
-              <Text style={styles.dropdownTitle}>{t('Select Blood Group')}</Text>
-              <ScrollView showsVerticalScrollIndicator={false} style={styles.dropdownList}>
-                <TouchableOpacity
-                  style={[
-                    styles.dropdownItem,
-                    !normalizeBloodGroup(editFormData.bloodGroup) && styles.dropdownItemSelected,
-                  ]}
-                  onPress={() => {
-                    handleEditFormChange("bloodGroup", "");
-                    setShowBloodGroupDropdown(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.dropdownItemText,
-                      !normalizeBloodGroup(editFormData.bloodGroup) && styles.dropdownItemTextSelected,
-                    ]}
-                  >
-                    {t('profile:notSpecified')}
-                  </Text>
-                  {!normalizeBloodGroup(editFormData.bloodGroup) && (
-                    <Ionicons name="checkmark" size={20} color="#2c50cd" />
-                  )}
-                </TouchableOpacity>
-                {bloodGroups.map((bg) => (
-                  <TouchableOpacity
-                    key={bg}
-                    style={[
-                      styles.dropdownItem,
-                      normalizeBloodGroup(editFormData.bloodGroup) === bg && styles.dropdownItemSelected,
-                    ]}
-                    onPress={() => {
-                      handleEditFormChange("bloodGroup", bg);
-                      setShowBloodGroupDropdown(false);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.dropdownItemText,
-                        normalizeBloodGroup(editFormData.bloodGroup) === bg && styles.dropdownItemTextSelected,
-                      ]}
-                    >
-                      {bg}
-                    </Text>
-                    {normalizeBloodGroup(editFormData.bloodGroup) === bg && (
-                      <Ionicons name="checkmark" size={20} color="#2c50cd" />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
 
       <AvatarPicker
         visible={showAvatarBuilder}

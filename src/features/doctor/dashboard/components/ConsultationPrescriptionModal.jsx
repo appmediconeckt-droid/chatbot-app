@@ -53,7 +53,7 @@ export default function ConsultationPrescriptionModal({ visible, appointment, on
                 </Pressable>
               </View>
             ) : data ? (
-              <ConsultationPrescriptionDocument data={data} />
+              <ConsultationPrescriptionDocument data={data} bleed={12} />
             ) : (
               <View style={s.status}>
                 <ActivityIndicator size="large" color="#2563EB" />

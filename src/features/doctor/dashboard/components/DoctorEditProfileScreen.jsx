@@ -12,7 +12,7 @@ import { API_BASE_URL, TUNNEL_HEADERS } from '../../../../axiosConfig';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LocationPicker from './LocationPicker';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
-import { getPhoneLengthLabel, isValidMobileNumber, normalizeLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
+import { isValidMobileNumber, normalizeLocalPhoneNumber, phoneNumberError, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 // Edge-to-edge Android doesn't shrink the window for the keyboard, so the
@@ -86,7 +86,7 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
       return showToast('Enter a valid email address');
     }
     if (!isValidMobileNumber(form.phoneNumber, form.phoneCountryCode)) {
-      return showToast(`Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}`);
+      return showToast(phoneNumberError(form.phoneNumber, form.phoneCountryCode));
     }
     if (form.age.trim() && Number.isNaN(Number(form.age))) {
       return showToast('Age must be a number');

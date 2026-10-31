@@ -37,6 +37,7 @@ jest.mock('../src/axiosConfig', () => ({
 
 
 jest.mock('react-native-linear-gradient', () => 'Gradient');
+jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 jest.mock('../src/features/doctor/dashboard/utils/consultationPrescriptionPdf', () => ({ downloadConsultationPrescriptionPdf: jest.fn() }));
 
 const testDetails = { testName: 'CBC', completeBy: '2026-10-20', reason: 'Recorded reason', instructions: 'Fasting' };
@@ -68,7 +69,8 @@ it('staff opens fresh prescription details and downloads all clinical/test field
   api.get.mockResolvedValue(response({ ...record, prescription: { ...record.prescription, diagnosis: 'Updated diagnosis' } }));
   await pressAccessible('View Online visit');
   expect(api.get).toHaveBeenCalledTimes(2);
-  ['Updated diagnosis', 'Patient ID', 'patient-1', 'Contact No.', '1234567890', '42 years', 'MBBS', 'REG-1', '500 mg', 'After food', 'CBC', 'Recorded reason', 'Fasting', 'Recorded notes', 'Doctor signature'].forEach(value => expect(json()).toContain(value));
+  ['Updated diagnosis', 'Contact No.', '1234567890', '42 years', 'MBBS', 'REG-1', 'After food', 'CBC', 'Recorded reason', 'Fasting', 'Doctor signature'].forEach(value => expect(json()).toContain(value));
+  expect(json()).not.toContain('Recorded notes');
   const download = root.root.findAllByType(RecButton).find(node => node.props.label === 'Download PDF');
   await act(async () => { await download.props.onPress(); });
   expect(downloadConsultationPrescriptionPdf).toHaveBeenCalledWith(expect.objectContaining({
@@ -128,4 +130,15 @@ it('keeps pagination visible with both navigation buttons disabled for an empty 
   for (const label of ['Previous page', 'Next page']) {
     expect(root.root.findAllByType('Pressable').find(node => node.props.accessibilityLabel === label).props.disabled).toBe(true);
   }
+});
+
+it('visit card downloads the prescription and hides an empty diagnosis', async () => {
+  const noDiagnosis = { ...record, diagnosis: '', prescription: { ...record.prescription, diagnosis: '' } };
+  api.get.mockResolvedValue(response(noDiagnosis));
+  await act(async () => { root = create(<PatientsSection />); });
+  await pressAccessible('View visits for Test patient');
+  expect(json()).not.toContain('DIAGNOSIS');
+  await pressAccessible('Download Online visit prescription');
+  expect(downloadConsultationPrescriptionPdf).toHaveBeenCalledWith(expect.objectContaining({ patient: 'Test patient', opd: '4' }));
+  expect(api.get).toHaveBeenCalledTimes(1);
 });

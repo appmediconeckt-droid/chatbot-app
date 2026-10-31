@@ -195,6 +195,7 @@ const getMedicines = item => {
 
 // Who wrote the prescription — shown as a badge so the patient can tell a
 // psychiatrist's chat prescription from a doctor's consultation prescription.
+// Both use the patient green; the label and icon tell them apart.
 const SOURCE_BADGES = {
   doctor: {
     label: 'Doctor',
@@ -205,8 +206,8 @@ const SOURCE_BADGES = {
   psychiatrist: {
     label: 'Psychiatrist',
     icon: 'chatbubble-ellipses-outline',
-    bg: '#F3E8FF',
-    text: '#7E22CE',
+    bg: '#E6F6EC',
+    text: '#006B2C',
   },
 };
 
@@ -1118,7 +1119,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
   },
   cardDoctor: { borderLeftWidth: 4, borderLeftColor: '#01CE54' },
-  cardPsychiatrist: { borderLeftWidth: 4, borderLeftColor: '#A855F7' },
+  cardPsychiatrist: { borderLeftWidth: 4, borderLeftColor: '#01CE54' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sourceBadge: {

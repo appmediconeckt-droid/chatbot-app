@@ -35,9 +35,33 @@ const strokeToPath = points => {
   return `${d} L ${px} ${py}`;
 };
 
+// Room around the ink when cropping: half the native 3.2 stroke width plus a
+// little air, so round caps aren't clipped.
+const CROP_PADDING = 4;
+
+// The strokes moved to the ink's own box, and that box's size. Saving the
+// whole pad left empty space under the signature, which showed as a gap
+// above the doctor's name on the prescription.
+const cropStrokes = strokes => {
+  const xs = [];
+  const ys = [];
+  strokes.forEach(stroke => {
+    for (let i = 0; i + 1 < stroke.length; i += 2) {
+      xs.push(stroke[i]);
+      ys.push(stroke[i + 1]);
+    }
+  });
+  const left = Math.min(...xs) - CROP_PADDING;
+  const top = Math.min(...ys) - CROP_PADDING;
+  return {
+    strokes: strokes.map(stroke => stroke.map((value, i) => value - (i % 2 ? top : left))),
+    width: Math.max(...xs) + CROP_PADDING - left,
+    height: Math.max(...ys) + CROP_PADDING - top,
+  };
+};
+
 export default function SignaturePad({ visible, title = 'Draw your signature', signerName, onCancel, onDone }) {
   const [strokes, setStrokes] = useState([]);
-  const [size, setSize] = useState({ width: 0, height: 0 });
   const [saving, setSaving] = useState(false);
   const current = useRef(null);
 
@@ -82,7 +106,8 @@ export default function SignaturePad({ visible, title = 'Draw your signature', s
     }
     try {
       setSaving(true);
-      const path = await renderer.renderSignaturePng(strokes, size.width, size.height);
+      const cropped = cropStrokes(strokes.filter(stroke => stroke.length >= 2));
+      const path = await renderer.renderSignaturePng(cropped.strokes, cropped.width, cropped.height);
       onDone?.({ uri: `file://${path}`, type: 'image/png', name: `signature-${Date.now()}.png` });
       clear();
     } catch (error) {
@@ -108,13 +133,7 @@ export default function SignaturePad({ visible, title = 'Draw your signature', s
             </Pressable>
           </View>
 
-          <View
-            style={styles.pad}
-            onLayout={({ nativeEvent }) =>
-              setSize({ width: nativeEvent.layout.width, height: nativeEvent.layout.height })
-            }
-            {...responder.panHandlers}
-          >
+          <View style={styles.pad} {...responder.panHandlers}>
             {!hasInk && (
               <View style={styles.hint} pointerEvents="none">
                 <Ionicons name="create-outline" size={22} color="#94A3B8" />

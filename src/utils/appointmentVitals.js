@@ -1,4 +1,16 @@
+export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
+
+// "a +ve" / "AB Positive" / "o-" → "A+" / "AB+" / "O-"; '' when not a group.
+export const normalizeBloodGroup = (value) => {
+  const text = String(value ?? '').trim().toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/(POSITIVE|POS|\+VE)$/, '+')
+    .replace(/(NEGATIVE|NEG|-VE)$/, '-');
+  return BLOOD_GROUPS.includes(text) ? text : '';
+};
+
 export const VITAL_FIELDS = [
+  ['blood_group', 'Blood group', ''],
   ['blood_pressure', 'Blood pressure', 'mmHg'],
   ['pulse', 'Pulse', 'beats/min'],
   ['temperature', 'Temperature', ''],
@@ -27,6 +39,8 @@ export function getAppointmentVitals(appointment = {}) {
   return {
     blood_pressure: first(stored.blood_pressure, stored.bp, stored.bloodPressure, value.blood_pressure, value.bp, value.bloodPressure),
     pulse: first(stored.pulse, stored.heartRate, stored.heart_rate, value.pulse, value.heartRate, value.heart_rate),
+    // Only from the recorded vitals — never the patient's own profile field.
+    blood_group: normalizeBloodGroup(first(stored.blood_group, stored.bloodGroup)) || undefined,
     temperature: first(value.temperature, value.temp),
     temperature_unit: first(value.temperature_unit, value.temperatureUnit, 'C'),
     spo2: first(value.spo2, value.oxygen_saturation, value.oxygenSaturation),

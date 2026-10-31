@@ -21,7 +21,13 @@ export async function saveDoctorSignature(profile, file) {
   if (!userId) throw new Error('Doctor profile could not be loaded. Please retry.');
   const body = new FormData();
   body.append('prescriptionSignature', await validateSignatureFile(file));
-  const { data } = await axiosInstance.patch(`/api/auth/update/${encodeURIComponent(String(userId))}`, body, { timeout: 30000 });
+  // Multipart, like the clinic photo upload: with the instance's default JSON
+  // content type axios turned the form into JSON, so no file reached the
+  // server and it answered "Error updating user".
+  const { data } = await axiosInstance.patch(`/api/auth/update/${encodeURIComponent(String(userId))}`, body, {
+    timeout: 30000,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
   if (data?.success === false || !doctorSignatureUrl(data?.user)) throw new Error('Signature could not be saved. Please try again.');
   const updated = { ...profile, ...data.user, prescriptionSignatureUrl: doctorSignatureUrl(data.user) };
   await saveDoctorUser(updated).catch(() => {});

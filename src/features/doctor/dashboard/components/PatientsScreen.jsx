@@ -258,9 +258,9 @@ export default function PatientsScreen({ onPatientPress }) {
                   <AppIcon name="chevron-right" size={18} color="#98A2B3" strokeWidth={2.2} />
                 </View>
                 <View style={s.cardFooter}>
-                  <View style={s.footerItem}>
+                  <View style={[s.footerItem, s.phoneFooterItem]}>
                     <AppIcon name="phone" size={13} color="#0D9488" />
-                    <Text translate={false} style={s.contactText}>{p.phone}</Text>
+                    <Text translate={false} style={s.contactText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>{p.phone}</Text>
                   </View>
                   <View style={s.footerItem}>
                     <AppIcon name="calendar" size={13} color="#64748B" />
@@ -412,7 +412,8 @@ const s = createDoctorStyles({
   metaChip: { fontSize: 11.5, fontWeight: '700', color: '#475467', backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
   blood: { fontSize: 11.5, fontWeight: '800', color: '#BE123C', backgroundColor: '#FFE4E6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
   footerItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  contactText: { fontSize: 12.5, fontWeight: '600', color: '#344054' },
+  phoneFooterItem: { width: '100%', minWidth: 0 },
+  contactText: { flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: '700', color: '#344054' },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', rowGap: 8, columnGap: 10, marginTop: 12, paddingTop: 11, borderTopWidth: 1, borderTopColor: '#EEF3F2' },
   lastVisit: { fontSize: 12.5, color: '#667085' },
   visits: { fontSize: 12, fontWeight: '800', color: '#FFFFFF', backgroundColor: '#0D9488', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },

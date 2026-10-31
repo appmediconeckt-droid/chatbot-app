@@ -46,7 +46,11 @@ export default function DoctorPrescriptionSignature({ profile, loading, onSaved 
       setFile(null); setValidPreview(false);
       setNotice('Signature saved. It will appear on your appointment prescriptions and downloaded PDFs.');
     } catch (failure) {
-      setError(failure.response?.data?.message || failure.message || 'Unable to save your signature. Please try again.');
+      // The server's generic "Error updating user" comes with the reason in
+      // `error`; show it so a failed save says why.
+      const server = failure.response?.data;
+      const reason = server?.error && server.error !== server.message ? ` (${server.error})` : '';
+      setError(server?.message ? `${server.message}${reason}` : failure.message || 'Unable to save your signature. Please try again.');
     } finally {
       setSaving(false);
     }

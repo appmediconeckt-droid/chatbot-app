@@ -1,4 +1,5 @@
-import { prescriptionBrand, prescriptionWatermark, prescriptionFooter } from './prescriptionBrandAssets';
+import { prescriptionBrand, prescriptionWatermark } from './prescriptionBrandAssets';
+import { PRESCRIPTION_DOCUMENT_CSS } from './prescriptionDocumentCss';
 import { consultationData } from './consultationData';
 import toImageUri from './imageUri';
 import { API_BASE_URL } from '../axiosConfig';
@@ -44,6 +45,38 @@ export const medicineTiming = (m = {}) =>
 export const medicineDuration = (m = {}) =>
   m.duration || [m.durationValue, m.durationType].filter(Boolean).join(' ');
 
+// Always short, on the page and in the PDF alike: "RX-" + the last six
+// characters of the record id ("RX-99E22E"), the number the app's prescription
+// headers show. Ids arrive as "appointment:<id>", "walkin:<id>", "online-<id>"
+// …, so the id is picked out of the text rather than the prefix printed. A
+// short saved number ("RX-SAVED") is kept as it is.
+const SHORT_RX = /^RX-[A-Z0-9]{1,8}$/i;
+const shortFrom = (text) => {
+  const value = String(text ?? '').trim();
+  if (!value) return '';
+  if (SHORT_RX.test(value)) return value.toUpperCase();
+  const id = value.match(/[a-f\d]{24}/i)?.[0];
+  const tail = (id || value.replace(/[^a-z0-9]/gi, '')).slice(-6).toUpperCase();
+  return tail ? `RX-${tail}` : '';
+};
+
+export const prescriptionNumber = (record = {}) => shortFrom(record.prescriptionNumber || record.prescription_number)
+  || shortFrom(record.id || record._id || record.appointmentId);
+
+
+// Web prescriptionBookingSource: the doctor whose booking QR goes on the
+// letterhead, and the QR itself when the record already carries it.
+const bookingSource = (record, provider) => {
+  const role = String(provider.role || provider.accountType || '').toLowerCase();
+  if (role && role !== 'doctor' && provider.accountType !== 'doctor') return { doctorId: '', bookingQr: '' };
+  const doctorId = provider._id || provider.id || record.doctorId || record.doctor_id || record.counselor?._id || record.counselor?.id || (typeof record.counselor === 'string' ? record.counselor : '');
+  const candidate = provider.profileQrCode || provider.doctorQrCode || record.doctorQrCode || '';
+  return {
+    doctorId: typeof doctorId === 'object' ? '' : String(doctorId || ''),
+    bookingQr: typeof candidate === 'string' && /^data:image\/png;base64,/i.test(candidate) ? candidate : '',
+  };
+};
+
 // Both raw API records and the doctor's formatted queue rows use this shape.
 export const appointmentToDocument = (appointment = {}, doctorName) => {
   const input = { ...appointment.__raw };
@@ -65,7 +98,8 @@ export const appointmentToDocument = (appointment = {}, doctorName) => {
     address: listText(clinic.location || clinic.address),
     doctorPhone: formatPhoneNumber(clinic.phone_number || clinic.phoneNumber || clinic.phone || provider.phoneNumber || provider.phone, (clinic.phone_number || clinic.phoneNumber || clinic.phone) ? clinic.phoneCountryCode : provider.phoneCountryCode),
     doctorEmail: listText(provider.email),
-    prescriptionId: listText(record.prescriptionNumber || record.id || record._id),
+    prescriptionId: prescriptionNumber(record),
+    ...bookingSource(record, provider),
     opd: listText(record.opdNumber ?? record.token_number ?? record.token),
     patientId: listText(patient.id || patient._id || record.patientId),
     age: listText(patient.age ?? record.age),
@@ -130,7 +164,7 @@ export const followUpText = data =>
 
 export const testLine = test =>
   [
-    test.completeBy ? ` · By ${documentDate(test.completeBy)}` : '',
+    test.completeBy ? ` / By ${documentDate(test.completeBy)}` : '',
     test.reason ? `\n${test.reason}` : '',
     test.instructions ? `\n${test.instructions}` : '',
   ].join('');
@@ -143,144 +177,112 @@ const esc = value =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-// Shared by patient downloads and staff/doctor native PDF printing: one A4
-// page laid out like the in-app prescription — compact letterhead, patient
-// strip, clinical notes, medicines table, follow-up and sign-off.
+// lucide-react icons the web document uses (v1.46, stroke 2), as inline SVG.
+// The web's advice icon is hidden by its stylesheet, so it is left out.
+const lucide = (children, className = '') => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${className ? ` class="${className}"` : ''} aria-hidden="true">${children}</svg>`;
+const STETHOSCOPE = lucide('<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>');
+const CALENDAR_DAYS = lucide('<path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M8 13h.01"/><path d="M12 13h.01"/><path d="M16 13h.01"/><path d="M8 17h.01"/><path d="M12 17h.01"/><path d="M16 17h.01"/>', 'prescription-section-icon');
+
+// The PDF page for doctor, receptionist and patient downloads alike: the
+// web's PrescriptionDocument.jsx markup with its stylesheet, laid out at the
+// web export's fixed 794px paper width (`.prescription-export`), so the app
+// prints the same page the web downloads. Like the web PDF, the elements the
+// web keeps whole across a page break stay whole here too.
 export const buildConsultationDocumentHtml = (data = {}) => {
-  // Blank values and "—" / "not recorded" fillers are never printed.
-  const present = value => {
-    const text = String(value ?? '').trim();
-    return Boolean(text) && text !== '—' && !/^(none|not)\s*recorded$/i.test(text);
-  };
-  const ref = (label, value) => present(value) ? `<div class="ref"><span>${esc(label)}</span><b>${esc(value)}</b></div>` : '';
-  const info = (label, value) => present(value) ? `<div class="info"><span>${esc(label)}</span><b>${esc(value)}</b></div>` : '';
-  const cell = value => present(value) ? esc(value) : '<i>—</i>';
+  const detail = (label, value) => `<div><span>${esc(label)}</span><strong>${esc(value || '-')}</strong></div>`;
+  const has = value => Boolean(String(value ?? '').trim());
+  const gender = has(data.gender) && data.gender !== '—' ? data.gender : '';
+  const ageGender = [has(data.age) && `${data.age} years`, gender].filter(Boolean).join(' / ');
+  const weight = has(data.weight) ? `${data.weight}${/kg/i.test(String(data.weight)) ? '' : ' kg'}` : '';
+  const medicines = Array.isArray(data.medicines) ? data.medicines : [];
+  const tests = Array.isArray(data.tests) ? data.tests : [];
+  const advice = String(data.advice || '');
+  const adviceLines = advice.split(/\n+/).map(line => line.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean);
+  const contact = [data.doctorPhone, data.doctorEmail].filter(has).join(' | ');
+  const hasContactFooter = has(data.address) || Boolean(contact);
+  // Height of the footer printed on every page: brand line, plus the address
+  // and phone / email lines when there are any (each kept to one line).
+  const footerHeight = hasContactFooter ? (has(data.address) && contact ? 70 : 54) : 32;
 
-  const doctorLines = [data.qualification, data.specialization, data.registration && `Reg. No.: ${data.registration}`].filter(present);
-  // Clinic strip: location, phone and email as separate items, each with an icon.
-  const icon = path => `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
-  const ICONS = {
-    pin: icon('<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>'),
-    phone: icon('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>'),
-    mail: icon('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>'),
-  };
-  const location = [data.clinic, data.address].filter(present).map(esc);
-  const clinicItems = [
-    location.length ? `<div class="ci ci-loc">${ICONS.pin}<p><b>${location[0]}</b>${location.length > 1 ? `, ${location.slice(1).join(', ')}` : ''}</p></div>` : '',
-    present(data.doctorPhone) ? `<div class="ci">${ICONS.phone}<p>${esc(data.doctorPhone)}</p></div>` : '',
-    present(data.doctorEmail) ? `<div class="ci">${ICONS.mail}<p>${esc(data.doctorEmail)}</p></div>` : '',
-  ].filter(Boolean).join('');
-  const rxNumber = present(data.prescriptionId) ? shortRxNumber(data.prescriptionId) : '';
-  const ageGender = [present(data.age) && `${data.age} yrs`, present(data.gender) && data.gender].filter(Boolean).join(' / ');
-  const weight = present(data.weight) ? `${data.weight}${/kg/i.test(data.weight) ? '' : ' kg'}` : '';
-  const followUp = followUpText(data);
-  const hasFollowUp = followUp !== 'No follow-up scheduled';
+  const qr = data.bookingQr
+    ? `<img src="${esc(data.bookingQr)}" alt="Doctor appointment booking QR"/><span>Scan to book<br/>an appointment</span>`
+    : '';
 
-  const medicines = (data.medicines || []).length
-    ? `<table><thead><tr><th class="n">#</th><th class="name">Medicine</th><th>Dosage</th><th>When</th><th>Duration</th><th class="notes">Instructions</th></tr></thead><tbody>${data.medicines.map((m, index) => `<tr><td class="n">${index + 1}</td><td class="name"><b>${esc(m.name || m.medicine || '—')}</b>${present(m.strength) ? `<small>${esc(m.strength)}</small>` : ''}</td><td>${cell(m.dosage)}</td><td>${cell(medicineTiming(m))}</td><td>${cell(medicineDuration(m))}</td><td class="notes">${cell(m.instructions)}</td></tr>`).join('')}</tbody></table>`
-    : `<p class="empty">${esc(present(data.medicine) ? data.medicine : 'No medicines prescribed.')}</p>`;
+  const medicineSection = medicines.length
+    ? `<div class="prescription-table-wrap"><table><thead><tr><th>S. No.</th><th>Medicine name</th><th>Dosage</th><th>Duration</th><th>Instructions</th></tr></thead><tbody>${medicines.map((m, index) => `<tr><td>${index + 1}</td><td><strong>${esc(m.name || m.medicine || '-')}</strong></td><td>${esc(m.dosage || '-')}</td><td>${esc(medicineDuration(m) || '-')}</td><td>${esc([medicineTiming(m), m.instructions].filter(Boolean).join(' / ') || '-')}</td></tr>`).join('')}</tbody></table></div>`
+    : `<p>${esc(data.medicine || 'No medicines prescribed.')}</p>`;
 
-  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+  const followUp = data.followUp ? documentDate(data.followUp) : data.followUpRequired ? 'Required' : 'No follow-up scheduled';
+
+  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=794"/>
 <style>
-@page { size: A4; margin: 10mm 12mm; }
-* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body { margin: 0; font: 11.5px/1.45 Arial, Helvetica, sans-serif; color: #1f2d3a; }
-/* A column, so the sign-off and brand line sit at the foot of the page. */
-.doc { position: relative; display: flex; flex-direction: column; min-height: 270mm; padding-bottom: 14px; border-bottom: 4px solid #0f766e; }
-b { font-weight: 700; overflow-wrap: anywhere; }
-p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-span { display: block; font-size: 8.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: #64748b; }
-/* Letterhead */
-.head { display: flex; align-items: center; gap: 16px; padding-bottom: 10px; border-bottom: 2px solid #99d6cf; }
-.logo { width: 62px; height: 62px; object-fit: contain; flex-shrink: 0; }
-.doctor { flex: 1; min-width: 0; }
-.doctor h2 { margin: 1px 0 2px; font-size: 18px; color: #193d42; }
-.doctor p { font-size: 10.5px; color: #475569; line-height: 1.4; }
-.refs { display: flex; gap: 6px; flex-shrink: 0; }
-.ref { min-width: 74px; padding: 5px 9px; border: 1px solid #e2e8f0; border-radius: 6px; }
-.ref b { display: block; font-size: 12px; color: #193d42; margin-top: 1px; }
-.clinic { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 18px; margin-top: 8px; padding: 7px 12px; border-radius: 6px; background: #f0fdfa; font-size: 10.5px; color: #334155; }
-.ci { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.ci svg { flex-shrink: 0; }
-.ci p { white-space: nowrap; }
-.ci-loc { flex: 1 1 auto; }
-.ci-loc p { white-space: normal; }
-.clinic b { color: #0f766e; }
-.rxno { margin-top: 4px; font-size: 9px; color: #94a3b8; }
-/* Patient */
-/* Spread across the full width, so the right side is never empty. */
-.patient { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 22px; margin-top: 10px; padding: 9px 12px; border-radius: 7px; background: #f4f7f7; }
-.info b { display: block; font-size: 12px; color: #243247; margin-top: 1px; }
-.info.main b { font-size: 13.5px; color: #193d42; }
-/* Rx */
-.rx { display: flex; align-items: center; gap: 8px; margin: 14px 0 8px; }
-.rx h1 { margin: 0; font-size: 18px; color: #193d42; }
-.rx h1 em { font-style: normal; color: #0f766e; margin-right: 4px; }
-.rx hr { flex: 1; border: 0; border-top: 1px solid #e2e8f0; margin: 0; }
-.clinical { display: flex; gap: 8px; margin-bottom: 10px; }
-.box { flex: 1; padding: 7px 10px; border-radius: 6px; background: #f0fdfa; border-left: 3px solid #14b8a6; }
-.box.dx { background: #eef2ff; border-left-color: #6366f1; }
-.box.dx span { color: #4338ca; }
-.box b { display: block; font-size: 12px; color: #193d42; margin-top: 2px; }
-h3 { margin: 0 0 4px; font-size: 12px; color: #193d42; }
-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10.5px; }
-thead { display: table-header-group; }
-th { background: #0f766e; color: #fff; text-align: left; font-size: 9px; letter-spacing: .4px; text-transform: uppercase; padding: 6px 7px; }
-td { padding: 6px 7px; border-bottom: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; }
-tbody tr:nth-child(even) td { background: #f8fafc; }
-tr { break-inside: avoid; }
-td i { color: #cbd5e1; font-style: normal; }
-td small { display: block; font-size: 9.5px; color: #64748b; }
-.n { width: 5%; text-align: center; } .name { width: 25%; } .notes { width: 24%; }
-.empty { padding: 8px 10px; border: 1px dashed #cbd5e1; border-radius: 6px; color: #64748b; text-align: center; }
-.block { margin-top: 10px; }
-.block p { font-size: 11px; color: #334155; }
-/* Advice and notes: boxes like the clinical ones, side by side. */
-.notesRow { display: flex; gap: 10px; margin-top: 14px; break-inside: avoid; }
-.notesRow .box { padding: 10px 12px; border-left-width: 4px; }
-.box.advice { background: #fffbeb; border-left-color: #f59e0b; }
-.box.advice span { color: #b45309; }
-.box.note { background: #f1f5f9; border-left-color: #64748b; }
-.box.note span { color: #475569; }
-.notesRow span { font-size: 9.5px; letter-spacing: .7px; }
-.box p { margin-top: 4px; font-size: 12.5px; line-height: 1.55; color: #1f2d3a; }
-.tests p { font-size: 11px; color: #334155; margin-bottom: 2px; }
-/* Closing */
-.foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-top: auto; padding-top: 12px; border-top: 1px solid #e2e8f0; break-inside: avoid; }
-.follow { padding: 7px 11px; border-radius: 6px; border: 1px solid #e2e8f0; background: #f8fafc; }
-.follow b { display: block; font-size: 12px; color: #475569; margin-top: 1px; }
-.follow.on { background: #fffbeb; border-color: #fde68a; }
-.follow.on span { color: #92400e; } .follow.on b { color: #b45309; font-size: 13px; }
-.sign { width: 190px; text-align: right; }
-.sign .img { height: 50px; display: flex; justify-content: flex-end; align-items: flex-end; }
-.sign img { max-width: 160px; max-height: 50px; object-fit: contain; }
-.sign hr { border: 0; border-top: 1px solid #94a3b8; margin: 4px 0; }
-.sign b { display: block; font-size: 12.5px; color: #193d42; }
-.sign p { font-size: 10px; color: #64748b; }
-.sign span { margin-top: 3px; color: #94a3b8; }
-.brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 16px; padding-top: 8px; border-top: 1px solid #cfe3e0; font-size: 8.5px; color: #64748b; }
-.brand b { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; letter-spacing: 1.2px; color: #193d42; }
-.brand img { width: 18px; height: 18px; }
-/* Centred on the page, faint, clear of the signature. */
-.watermark { position: absolute; left: 50%; top: 50%; width: 240px; margin-left: -120px; margin-top: -120px; opacity: .03; z-index: -1; }
-</style></head><body><article class="doc">
-<img class="watermark" src="${prescriptionWatermark}" alt=""/>
-<header class="head">
-<img class="logo" src="${prescriptionBrand}" alt="Humaeli"/>
-<div class="doctor"><h2>${esc(data.doctor)}</h2>${doctorLines.map(line => `<p>${esc(line)}</p>`).join('')}</div>
-<div class="refs">${ref('Date', data.date)}${ref('Token', present(data.opd) ? `#${data.opd}` : '')}${ref('Rx No.', rxNumber)}</div>
+@page { size: A4; margin: 8mm 0 6mm; }
+html, body { margin: 0; padding: 0; background: #fff; }
+* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+${PRESCRIPTION_DOCUMENT_CSS}
+/* Paged layout: the letterhead is the page table's header, which the printer
+   repeats at the top of every page; the contact / brand footer is fixed, which
+   prints it at the foot of every page, and the page table's footer keeps that
+   much room free so content never runs under it. */
+.prescription-export .prescription-document { border: 0; padding: 0 26px; min-height: 0; }
+.prescription-document table.rx-page { table-layout: auto; font-size: inherit; }
+.prescription-document table.rx-page > * > tr > td { padding: 0; border: 0; line-height: inherit; }
+.rx-page > thead { display: table-header-group; }
+.rx-page > tfoot { display: table-footer-group; }
+/* Follow-up and sign-off sit at the foot of the last page, just above the
+   footer: the page table is at least one page tall (A4 less the page margins,
+   with a millimetre spare so it never spills onto a blank page), and the
+   sign-off row takes the spare height with its content aligned to the bottom.
+   A longer prescription simply ends with them after the last content. */
+.prescription-document table.rx-page { height: 282mm; }
+.prescription-document table.rx-page > tbody > tr.rx-signoff-row { height: 100%; }
+.prescription-document table.rx-page > tbody > tr.rx-signoff-row > td { vertical-align: bottom; }
+.prescription-document table.rx-page > thead > tr > td { padding-bottom: 10px; }
+.rx-page .prescription-patient { margin-top: 0; }
+.rx-footer-space { height: ${footerHeight + 8}px; }
+.prescription-export .prescription-document > .rx-page-footer {
+  position: fixed; left: 0; right: 0; bottom: 0; height: ${footerHeight}px; padding: 0 26px;
+  display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; background: #fff; z-index: 2;
+}
+.rx-page-footer .prescription-contact-footer { margin-top: 0; }
+.rx-page-footer .prescription-contact-footer p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prescription-export .prescription-document > .prescription-watermark { position: fixed; top: 50%; }
+.prescription-document-header, .prescription-patient-row, .prescription-medicines tr, .prescription-document-footer,
+.prescription-tests > p, .prescription-advice li { break-inside: avoid; page-break-inside: avoid; }
+.prescription-medicines thead { display: table-header-group; }
+/* The signature sits right on the doctor's name: drawn at its own shape and
+   bottom-aligned in its box, with no inline-image baseline gap under it. */
+.prescription-signature-space { display: flex; align-items: flex-end; justify-content: flex-end; }
+.prescription-signature-space img { display: block; width: auto; height: auto; max-width: 145px; max-height: 46px; }
+</style></head><body><div class="prescription-export"><article class="prescription-document">
+<img class="prescription-watermark" src="${prescriptionWatermark}" alt="" aria-hidden="true"/>
+<table class="rx-page"><thead><tr><td>
+<header class="prescription-document-header">
+<div class="prescription-brand"><img src="${prescriptionBrand}" alt="Humaeli - Talk. Connect. Feel Supported."/>${has(data.clinic) ? `<strong>${esc(data.clinic)}</strong>` : ''}</div>
+<div class="prescription-issuer"><span class="prescription-issuer-label">Consulting doctor</span><h2>${esc(data.doctor)}</h2>${has(data.qualification) ? `<p class="prescription-qualification">${esc(data.qualification)}</p>` : ''}${has(data.specialization) ? `<p class="prescription-specialization">${esc(data.specialization)}</p>` : ''}<div class="prescription-doctor-contact">${has(data.registration) ? `<p>${STETHOSCOPE}<span>Reg. No.: ${esc(data.registration)}</span></p>` : ''}</div></div>
+<div class="prescription-booking-qr">${qr}</div>
 </header>
-${clinicItems ? `<div class="clinic">${clinicItems}</div>` : ''}
-<section class="patient"><div class="info main"><span>Patient</span><b>${esc(present(data.patient) ? data.patient : 'Patient')}</b></div>${info('Age / Gender', ageGender)}${info('Contact', data.phone)}${info('Weight', weight)}${info('Allergies', data.allergies)}${info('Patient ID', data.patientId)}</section>
-<div class="rx"><h1><em>℞</em>Prescription</h1><hr/></div>
-${present(data.issue) || present(data.diagnosis) ? `<div class="clinical">${present(data.issue) ? `<div class="box"><span>Consultation for</span><b>${esc(data.issue)}</b></div>` : ''}${present(data.diagnosis) ? `<div class="box dx"><span>Diagnosis</span><b>${esc(data.diagnosis)}</b></div>` : ''}</div>` : ''}
-<h3>Prescribed medicines</h3>${medicines}
-${(data.tests || []).length ? `<section class="block tests"><h3>Recommended tests</h3>${data.tests.map(test => `<p><b>${esc(test.testName || test.name)}</b>${esc(testLine(test))}</p>`).join('')}</section>` : ''}
-${present(data.advice) || (present(data.notes) && data.notes !== data.advice) ? `<div class="notesRow">${present(data.advice) ? `<div class="box advice"><span>Advice &amp; instructions</span><p>${esc(data.advice)}</p></div>` : ''}${present(data.notes) && data.notes !== data.advice ? `<div class="box note"><span>Additional notes</span><p>${esc(data.notes)}</p></div>` : ''}</div>` : ''}
-<footer class="foot">
-${hasFollowUp ? `<div class="follow on"><span>Next follow-up</span><b>${esc(followUp)}</b></div>` : '<div></div>'}
-<div class="sign"><div class="img">${data.signature ? `<img src="${esc(data.signature)}" alt="Doctor signature"/>` : ''}</div><hr/><b>${esc(data.doctor)}</b>${present(data.qualification) ? `<p>${esc(data.qualification)}</p>` : ''}${present(data.registration) ? `<p>Reg. No.: ${esc(data.registration)}</p>` : ''}<span>Issued by</span></div>
-</footer>
-<div class="brand">This prescription is provided by <b><img src="${prescriptionFooter}" alt="Humaeli"/>HUMAELI</b> Talk. Connect. Feel Supported.</div>
-</article></body></html>`;
+</td></tr></thead>
+<tfoot><tr><td><div class="rx-footer-space"></div></td></tr></tfoot>
+<tbody><tr><td>
+<section class="prescription-patient" aria-label="Patient and visit details">
+<div class="prescription-patient-row">${detail('Patient name', data.patient)}${detail('Date', data.date)}</div>
+<div class="prescription-patient-row">${detail('Age / Gender', ageGender)}${detail('OPD / Token No.', data.opd)}</div>
+<div class="prescription-patient-row">${detail('Weight', weight)}${detail('Prescription No.', data.prescriptionId)}</div>
+<div class="prescription-patient-row prescription-patient-row-wide">${detail('Contact No.', data.phone)}</div>
+</section>
+<div class="prescription-title"><h3>Consultation Prescription</h3></div>
+<section class="prescription-section prescription-clinical"><p><strong>Consultation for: </strong>${esc(data.issue || '—')}</p><p><strong>Diagnosis: </strong>${esc(data.diagnosis || '—')}</p></section>
+<section class="prescription-section prescription-medicines" aria-label="Prescribed medicines"><h3>Prescribed Medicines</h3>${medicineSection}</section>
+${advice ? `<section class="prescription-section prescription-advice"><div><h3>Advice &amp; Instructions</h3>${adviceLines.length > 1 ? `<ul>${adviceLines.map(line => `<li>${esc(line)}</li>`).join('')}</ul>` : `<p>${esc(advice)}</p>`}</div></section>` : ''}
+${tests.length ? `<section class="prescription-section prescription-tests"><h3>Recommended tests</h3>${tests.map(test => `<p><strong>${esc(test.testName || test.name)}</strong>${esc(testLine(test))}</p>`).join('')}</section>` : ''}
+</td></tr>
+<tr class="rx-signoff-row"><td>
+<footer class="prescription-document-footer"><div class="prescription-followup">${CALENDAR_DAYS}<div><span>Next Follow-up:</span><strong>${esc(followUp)}</strong></div></div><div class="prescription-signoff"><div class="prescription-signature-space">${data.signature ? `<img src="${esc(data.signature)}" alt="Doctor signature"/>` : ''}</div><strong>${esc(data.doctor)}</strong>${has(data.qualification) ? `<p>${esc(data.qualification)}</p>` : ''}${has(data.registration) ? `<p>Reg. No.: ${esc(data.registration)}</p>` : ''}</div></footer>
+</td></tr></tbody></table>
+<div class="rx-page-footer">
+${hasContactFooter ? `<div class="prescription-contact-footer">${has(data.address) ? `<p>${esc(data.address)}</p>` : ''}<p>${esc(contact)}</p></div>` : ''}
+<div class="prescription-brand-footer"><span>This prescription is provided by</span><div><img src="${prescriptionWatermark}" alt="" aria-hidden="true"/><strong>HUMAELI</strong></div><span>Talk. Connect. Feel Supported.</span></div>
+</div>
+</article></div></body></html>`;
 };

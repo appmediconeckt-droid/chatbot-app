@@ -23,7 +23,6 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const isActive = member.status === 'Active';
-  const activity = member.activity ?? [];
   const shift = shiftInfo(member.shift);
   const onShift = isActive && isOnShiftNow(shift.key, new Date(), member.shiftStartTime, member.shiftEndTime);
   // The exact timings the doctor set (web shift_start_time / shift_end_time).
@@ -83,14 +82,14 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
             <Image source={{ uri: member.image }} style={s.avatar} />
           </View>
           <Text translate={false} style={s.name}>{member.name}</Text>
-          <Text style={s.meta}>{member.id ? `#${String(member.id).replace(/^#/, '')} · ` : ''}{member.department} {member.role}</Text>
+          <Text style={s.meta}>{member.department} {member.role}</Text>
 
-          {/* "Active" only while the staff member is signed in right now. */}
-          {(!isActive || member.isOnline) && (
+          {/* Only a status that needs attention (On Leave, Suspended) — no "Active" badge. */}
+          {!isActive && (
             <View style={s.badgeRow}>
-              <View style={[s.statusBadge, !isActive && s.statusBadgeLeave]}>
-                <View style={[s.statusDot, !isActive && s.statusDotLeave]} />
-                <Text style={[s.statusBadgeText, !isActive && s.statusBadgeTextLeave]}>{member.status}</Text>
+              <View style={[s.statusBadge, s.statusBadgeLeave]}>
+                <View style={[s.statusDot, s.statusDotLeave]} />
+                <Text style={[s.statusBadgeText, s.statusBadgeTextLeave]}>{member.status}</Text>
               </View>
             </View>
           )}
@@ -130,8 +129,7 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
             </View>
           </View>
           <InfoRow label="Employment Status" value={member.employmentStatus} />
-          <InfoRow label="Join Date" value={formatLongDate(member.joinDate)} />
-          <InfoRow label="Manager" value={member.manager} last />
+          <InfoRow label="Join Date" value={formatLongDate(member.joinDate)} last />
         </View>
 
         <View style={s.card}>
@@ -156,24 +154,6 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
               </View>
             </View>
           </View>
-        </View>
-
-        <View style={s.card}>
-          <Text style={s.cardTitle}>Recent Activity</Text>
-          {activity.length === 0 && <Text style={s.emptyHint}>No recent activity.</Text>}
-          {activity.map((item, index) => (
-            <View key={item.title + index} style={s.activityRow}>
-              <View style={s.activityMarkerCol}>
-                <View style={s.activityDot} />
-                {index < activity.length - 1 && <View style={s.activityLine} />}
-              </View>
-              <View style={[s.grow, s.activityContent]}>
-                <Text style={s.activityTime}>{item.time}</Text>
-                <Text style={s.activityTitle}>{item.title}</Text>
-                {!!item.subtitle && <Text style={s.activitySubtitle}>{item.subtitle}</Text>}
-              </View>
-            </View>
-          ))}
         </View>
       </ScrollView>
 
@@ -252,7 +232,6 @@ const s = createDoctorStyles({
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#17243A', marginBottom: 12 },
   headerLink: { fontSize: 13, fontWeight: '700', color: colors.blue, marginBottom: 12 },
-  emptyHint: { fontSize: 13, color: '#8E9DB0' },
 
   employmentGrid: { flexDirection: 'row', gap: 12, marginBottom: 4 },
   employmentItem: { flex: 1 },
@@ -275,15 +254,6 @@ const s = createDoctorStyles({
   schedulePillActive: { backgroundColor: colors.paleBlue },
   schedulePillText: { fontSize: 11, fontWeight: '700', color: '#667085' },
   schedulePillTextActive: { color: colors.blue },
-
-  activityRow: { flexDirection: 'row' },
-  activityMarkerCol: { width: 18, alignItems: 'center' },
-  activityDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.blue, marginTop: 5 },
-  activityLine: { width: 2, flex: 1, backgroundColor: '#E1E6EE', marginVertical: 2 },
-  activityContent: { paddingBottom: 16, paddingLeft: 10 },
-  activityTime: { fontSize: 11.5, fontWeight: '600', color: '#8A94A4' },
-  activityTitle: { fontSize: 14.5, fontWeight: '700', color: '#17243A', marginTop: 2 },
-  activitySubtitle: { fontSize: 12.5, color: '#667085', marginTop: 2 },
 
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: '#FFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 28 },

@@ -53,7 +53,7 @@ it('uploads, previews and saves the same multipart field as web, then persists t
   await act(async () => { root.root.findByType('Image').props.onLoad(); });
   expect(button('Save Signature').props.disabled).toBe(false);
   await press('Save Signature');
-  expect(api.patch).toHaveBeenCalledWith('/api/auth/update/doctor-1', formData, { timeout: 30000 });
+  expect(api.patch).toHaveBeenCalledWith('/api/auth/update/doctor-1', formData, { timeout: 30000, headers: { 'Content-Type': 'multipart/form-data' } });
   expect(formData.parts).toEqual([['prescriptionSignature', { uri: image.uri, type: 'image/png', name: 'signature.png' }]]);
   expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ prescriptionSignatureUrl: 'https://example.test/saved-signature.png' }));
   expect(JSON.parse(AsyncStorage.setItem.mock.calls[0][1]).prescriptionSignature.url).toBe('/saved-signature.png');
@@ -101,4 +101,15 @@ it('blocks a broken preview and does not treat an unconfirmed server response as
   await expect(saveDoctorSignature(profile, image)).rejects.toThrow('Signature could not be saved');
   expect(AsyncStorage.setItem).not.toHaveBeenCalled();
   expect(doctorSignatureUrl({ prescriptionSignature: { secure_url: 'https://example.test/sign.png' } })).toBe('https://example.test/sign.png');
+});
+
+it('shows why the server refused the signature, not just "Error updating user"', async () => {
+  await render(jest.fn());
+  await press('Upload Image');
+  await act(async () => { root.root.findByType('Image').props.onLoad(); });
+  api.patch.mockRejectedValueOnce(Object.assign(new Error('Request failed with status code 500'), {
+    response: { data: { success: false, message: 'Error updating user', error: 'File too large' } },
+  }));
+  await press('Save Signature');
+  expect(JSON.stringify(root.toJSON())).toContain('Error updating user (File too large)');
 });

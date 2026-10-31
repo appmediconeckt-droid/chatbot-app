@@ -141,10 +141,6 @@ export const canUpdatePatientAvailability = (patient) => {
     && !patient.consultation_started_at && !patient.consultation_ended_at;
 };
 
-export const staffIdentity = (profile = {}) =>
-  profile.staffId || profile.staff_id || profile.assistantId || profile.technicianId || profile.housekeepingStaffId
-  || profile.supervisorId || profile.managerId || profile.billingId || profile._id || profile.id || 'Not assigned';
-
 export const staffShiftTiming = (profile = {}) => {
   const start = profile.shiftStartTime || profile.shift_start_time;
   const end = profile.shiftEndTime || profile.shift_end_time;
@@ -157,6 +153,22 @@ export const assignedClinicId = (profile) =>
 
 export const assignedDoctorId = (profile) =>
   String(profile?.assignedDoctor?._id || profile?.assignedDoctor?.id || profile?.assignedDoctor || '');
+
+// The doctor whose availability the queue's slot timing reads. The dashboard's
+// doctor often carries only a name, so fall back to the staff profile's
+// assigned doctor, then to the doctor on the bookings themselves.
+export const queueDoctorId = (data, profile) => {
+  const doctor = data?.doctor || {};
+  const own = doctor._id || doctor.id || doctor.user_id || doctor.userId || assignedDoctorId(profile);
+  if (own) return String(own);
+  const rows = [...(data?.currentPatients || []), ...(data?.waiting || []), ...(data?.appointments || [])];
+  const idOf = (row) => {
+    const value = row?.doctor_id ?? row?.doctorId ?? row?.doctor;
+    return value && typeof value === 'object' ? value._id || value.id : value;
+  };
+  const found = rows.map(idOf).find(Boolean);
+  return found ? String(found) : '';
+};
 
 // Same rule as the web: only a booking nobody has started can be cancelled.
 export const canCancelAppointment = (appointment) => {
@@ -232,24 +244,55 @@ const tokenNumber = (row) => {
   return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
 };
 
-// Emergency first, then token, then appointment time.
+// "11:00:00" / "14:30" / "2:30 PM" → minutes from midnight; null when the
+// row has no clock time.
+export const rowSlotMinutes = (row = {}) => {
+  const m = String(row.time || '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const meridiem = (m[3] || '').toUpperCase();
+  if (meridiem === 'PM' && h !== 12) h += 12;
+  if (meridiem === 'AM' && h === 12) h = 0;
+  return h * 60 + Number(m[2]);
+};
+
+const slotSortValue = (row) => rowSlotMinutes(row) ?? Number.MAX_SAFE_INTEGER;
+// Emergency first, then token number ascending, then slot time. The queue
+// then runs session by session (utils/queueSlots), so inside each slot range
+// it reads by token.
 export const sortQueue = (rows = []) => [...rows].sort((a, b) =>
   (b.emergency ? 1 : 0) - (a.emergency ? 1 : 0)
+  || String(a.date || '').slice(0, 10).localeCompare(String(b.date || '').slice(0, 10))
   || tokenNumber(a) - tokenNumber(b)
-  || String(a.time || '').localeCompare(String(b.time || '')));
+  || slotSortValue(a) - slotSortValue(b));
+
+// What the queue's slot heading reads (utils/queueSlots).
+export const rowSlotInfo = (row = {}) => ({
+  emergency: Boolean(row.emergency),
+  minutes: rowSlotMinutes(row),
+  iso: String(row.date || '').slice(0, 10),
+  clinicId: row.clinicId,
+});
 
 export const QUEUE_TABS = [
   { key: 'pending', label: 'Pending' },
+  { key: 'unavailable', label: 'Unavailable' },
   { key: 'in-progress', label: 'In Progress' },
   { key: 'completed', label: 'Completed' },
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
+// A waiting patient the desk marked Unavailable leaves Pending for the
+// Unavailable tab until marked Available again.
+export const isMarkedUnavailable = (row = {}) => String(row.availability?.status || '').toLowerCase() === 'unavailable';
+
 export const groupQueue = (rows = []) => {
-  const groups = { pending: [], 'in-progress': [], completed: [], cancelled: [] };
+  const groups = { pending: [], unavailable: [], 'in-progress': [], completed: [], cancelled: [] };
   dedupeRows(rows).forEach((row) => {
-    const bucket = queueBucket(row);
-    groups[bucket === 'next' ? 'pending' : bucket].push(row);
+    let bucket = queueBucket(row);
+    if (bucket === 'next') bucket = 'pending';
+    if (bucket === 'pending' && isMarkedUnavailable(row)) bucket = 'unavailable';
+    groups[bucket].push(row);
   });
   Object.keys(groups).forEach((name) => { groups[name] = sortQueue(groups[name]); });
   return groups;

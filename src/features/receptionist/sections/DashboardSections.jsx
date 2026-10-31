@@ -11,28 +11,40 @@ import {
   LoadingCard, Notice, NoticeText, QueueTabs, REC, StatGrid, StatTile,
 } from '../receptionistUi';
 import {
-  clinicName, dedupeRows, displayTime, groupQueue, patientKey, profilePhotoOf, staffIdentity, staffShiftTiming,
+  clinicName, dedupeRows, displayTime, groupQueue, patientKey, profilePhotoOf, queueDoctorId, rowSlotInfo, staffShiftTiming,
 } from '../receptionistUtils';
 import EditProfileSheet from '../components/EditProfileSheet';
+import { useReceptionistVitals } from '../ReceptionistVitalsContext';
 import { formatPhoneNumber } from '../../../utils/countryCodes';
+import QueueSlotHeader from '../../../components/common/QueueSlotHeader';
+import { groupQueueBySession, orderBySession, useDoctorAvailability } from '../../../utils/queueSlots';
 
 // Every booking the dashboard feed knows about, each once.
 const allRows = (data) => dedupeRows([...(data?.currentPatients || []), ...(data?.waiting || []), ...(data?.appointments || [])]);
 
 const EMPTY_TEXT = {
   pending: ['No patients waiting', 'New arrivals and bookings will appear in the queue here.'],
+  unavailable: ['No unavailable patients', 'Patients marked Unavailable appear here until they are marked Available again.'],
   'in-progress': ['No checkup in progress', 'The patient being examined will appear here when the doctor starts a checkup.'],
   completed: ['No completed visits yet', "Today's finished checkups will appear here."],
   cancelled: ['No cancelled appointments', 'Cancelled and no-show bookings for today will appear here.'],
 };
 
-// Today's receptionist queue, emergencies first and then by token.
-function QueueCard({ data, clinics, onView, title = "Today's Queue", subtitle, right }) {
-  const groups = useMemo(() => groupQueue(allRows(data)), [data]);
+// Today's receptionist queue: emergencies first, then session by session
+// (the doctor's availability ranges, each range shown once above its
+// patients), by token number inside each.
+function QueueCard({ data, profile, availability: sharedAvailability, clinics, onView, title = "Today's Queue", subtitle, right }) {
+  const { withSavedAvailability } = useReceptionistVitals();
+  const groups = useMemo(() => groupQueue(allRows(data).map(withSavedAvailability)), [data, withSavedAvailability]);
   const counts = Object.fromEntries(Object.entries(groups).map(([name, rows]) => [name, rows.length]));
   const [tab, setTab] = useState('pending');
   const rows = groups[tab] || [];
-  const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+  // A parent that already loaded the doctor's sessions passes them in.
+  const ownAvailability = useDoctorAvailability(sharedAvailability ? '' : queueDoctorId(data, profile));
+  const availability = sharedAvailability || ownAvailability;
+  const sections = tab === 'pending' || tab === 'in-progress'
+    ? groupQueueBySession(rows, rowSlotInfo, availability)
+    : [{ key: 'all', rows }];
   const [emptyTitle, emptyText] = EMPTY_TEXT[tab];
   // No card around the queue: header, tabs and patient cards sit on the page,
   // full width — the same layout as the doctor's Appointment Queue.
@@ -44,17 +56,15 @@ function QueueCard({ data, clinics, onView, title = "Today's Queue", subtitle, r
           <Text style={s.queueTitle}>{title}</Text>
           {!!subtitle && <Text style={s.queueSub}>{subtitle}</Text>}
         </View>
-        {right || (
-          <View style={s.queueTotal}>
-            <Text translate={false} style={s.queueTotalValue}>{total}</Text>
-            <Text style={s.queueTotalLabel}>{total === 1 ? 'patient' : 'patients'}</Text>
-          </View>
-        )}
+        {right}
       </View>
       <QueueTabs active={tab} counts={counts} onChange={setTab} />
-      {rows.length
-        ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} />)}</ResponsiveGrid>
-        : <View style={s.queueEmpty}><Empty title={emptyTitle} description={emptyText} /></View>}
+      {rows.length ? sections.map((section) => (
+        <View key={section.key}>
+          {section.kind ? <QueueSlotHeader range={section} /> : null}
+          <ResponsiveGrid minItemWidth={350} maxColumns={2}>{section.rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} />)}</ResponsiveGrid>
+        </View>
+      )) : <View style={s.queueEmpty}><Empty title={emptyTitle} description={emptyText} /></View>}
     </View>
   );
 }
@@ -102,7 +112,7 @@ function CurrentCheckups({ data, clinics, onView }) {
   ))}</ResponsiveGrid>;
 }
 
-export function OverviewSection({ data, clinics, error, onView }) {
+export function OverviewSection({ data, profile, clinics, error, onView }) {
   const groups = useMemo(() => groupQueue(allRows(data)), [data]);
   const { gutter } = useResponsiveLayout();
   if (!data) return <LoadingCard error={error} />;
@@ -111,7 +121,6 @@ export function OverviewSection({ data, clinics, error, onView }) {
     <View style={[s.overview, { paddingHorizontal: gutter }]}>
       <View style={s.overviewHeading}>
         <View style={s.flex}>
-          <Eyebrow>FRONT DESK</Eyebrow>
           <Text style={s.overviewTitle}>Today's overview</Text>
           <Text style={s.muted}>Appointments and patient flow at a glance</Text>
         </View>
@@ -132,9 +141,10 @@ export function OverviewSection({ data, clinics, error, onView }) {
 
       <QueueCard
         data={data}
+        profile={profile}
         clinics={clinics}
         onView={onView}
-        subtitle="Emergencies first, then by token"
+        subtitle="Emergencies first, then by slot and token"
       />
     </View>
   );
@@ -278,8 +288,14 @@ function NowServingCard({ data, groups, clinics, onView }) {
   );
 }
 
-export function LiveQueueSection({ data, clinics, error, onView, onNavigate }) {
-  const groups = useMemo(() => groupQueue(allRows(data)), [data]);
+export function LiveQueueSection({ data, profile, clinics, error, onView, onNavigate }) {
+  const availability = useDoctorAvailability(queueDoctorId(data, profile));
+  const { withSavedAvailability } = useReceptionistVitals();
+  // "Up next" follows the queue's session order, like the list below.
+  const groups = useMemo(() => {
+    const grouped = groupQueue(allRows(data).map(withSavedAvailability));
+    return { ...grouped, pending: orderBySession(grouped.pending, rowSlotInfo, availability) };
+  }, [data, availability, withSavedAvailability]);
   const { gutter } = useResponsiveLayout();
   if (!data) return <LoadingCard error={error} />;
   // The first patient with the doctor leads "Now serving"; any others (e.g. a
@@ -297,7 +313,7 @@ export function LiveQueueSection({ data, clinics, error, onView, onNavigate }) {
         </Card>
       )}
 
-      <QueueCard data={data} clinics={clinics} onView={onView} title="Patient queue" subtitle="Emergencies first, then by token" />
+      <QueueCard data={data} profile={profile} availability={availability} clinics={clinics} onView={onView} title="Patient queue" subtitle="Emergencies first, then by slot and token" />
     </View>
   );
 }
@@ -436,7 +452,6 @@ export function ProfileSection({ profile, onProfileUpdated }) {
     ['Assigned doctor', profile.assignedDoctorName, 'medkit-outline'],
     ['Assigned clinic', profile.clinic_name, 'business-outline'],
     ['Department', profile.department, 'briefcase-outline'],
-    ['Staff ID', staffIdentity(profile), 'id-card-outline'],
     ['Shift', profile.shift, 'sunny-outline'],
     ['Shift timings', staffShiftTiming(profile), 'time-outline'],
   ];
@@ -549,9 +564,6 @@ const s = StyleSheet.create({
   queueHeadIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
   queueTitle: { fontSize: 17, fontWeight: '800', color: REC.ink },
   queueSub: { fontSize: 12.5, color: REC.muted, marginTop: 2 },
-  queueTotal: { alignItems: 'center', minWidth: 58, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, backgroundColor: '#F4F7F9', borderWidth: 1, borderColor: REC.line },
-  queueTotalValue: { fontSize: 18, fontWeight: '800', color: REC.primary, lineHeight: 22 },
-  queueTotalLabel: { fontSize: 10, fontWeight: '700', color: REC.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
   overviewHeading: { marginTop: 2, marginBottom: 14 },
   overviewTitle: { fontSize: 21, fontWeight: '800', color: REC.ink, marginTop: 4, marginBottom: 2 },
   current: { borderWidth: 1, borderColor: '#CCE8DD', backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14 },

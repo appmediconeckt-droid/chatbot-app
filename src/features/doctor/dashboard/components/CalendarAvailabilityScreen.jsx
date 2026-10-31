@@ -31,7 +31,7 @@ import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { createClinic, unwrapApiArray } from '../api/doctorClinics';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
-import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
+import { buildInternationalPhoneNumber, isValidLocalPhoneNumber, phoneNumberError } from '../../../../utils/countryCodes';
 import { cleanClinicFee, isValidClinicFee } from './ClinicFeeField';
 import { currencyDigits, currencySymbol, feeCurrencyOf } from '../../../../utils/consultationCurrency';
 
@@ -40,12 +40,13 @@ import { currencyDigits, currencySymbol, feeCurrencyOf } from '../../../../utils
 // ---------------------------------------------------------------------------
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const DATE_EDITOR_DURATIONS = [5, 10, 15, 20, 30];
-const MULTI_RANGE_DURATIONS = [10, 15, 30, 45];
+// One list everywhere — date editor, "Apply to Selected Dates" / weekdays
+// and the range editor — so a duration picked in one place exists in all.
+const SLOT_DURATIONS = [5, 10, 15, 20, 30, 45];
 const CLINIC_COLORS = ['#0D9488', '#28a745', '#dc3545', '#ffc107', '#6f42c1'];
 
 const formatDateKey = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-const createEmptyTimeRange = () => ({ start: '', end: '', duration: 15 });
+const createEmptyTimeRange = (duration = 15) => ({ start: '', end: '', duration });
 
 const normalizeClinic = (clinic, index) => ({
   id: pickFirst(clinic._id, clinic.clinic_id, clinic.clinicId, clinic.id, clinic.hospital_id, index),
@@ -488,6 +489,27 @@ export default function CalendarAvailabilityScreen() {
     return availabilityWeekdayMap[new Date(y, m, day).getDay()] || [];
   };
 
+  // The slot length a new range starts with: the one already used on that
+  // date (or its weekly day), else on the selected recurring weekdays, else
+  // the doctor's other saved ranges — so every add flow matches what the
+  // date shows instead of falling back to 15 min.
+  const defaultSlotDuration = (day = selectedDays[0]) => {
+    const candidates = [
+      ...(day ? getRangesForDateOrWeek(year, month, day) : []),
+      ...(activeCalendarTab === 'recurring' ? recurringWeekdays.flatMap((w) => availabilityWeekdayMap[w] || []) : []),
+      ...Object.values(availabilityDateMap).flatMap((info) => (info?.blocked ? [] : info?.ranges || [])),
+      ...Object.values(availabilityWeekdayMap).flat(),
+    ];
+    const found = candidates.find((range) => Number(range?.duration) > 0);
+    return found ? Number(found.duration) : 15;
+  };
+
+  const openAddTimeModal = () => {
+    const duration = defaultSlotDuration();
+    setAdditionalTimeRows((rows) => rows.map((r) => (!r.start && !r.end ? { ...r, duration } : r)));
+    setShowAddTimeModal(true);
+  };
+
   const openEditorForDate = (y, m, day) => {
     if (isPastDate(y, m, day)) {
       Alert.alert('Calendar', 'Cannot edit past dates');
@@ -495,7 +517,7 @@ export default function CalendarAvailabilityScreen() {
     }
     const dateKey = formatDateKey(y, m, day);
     setEditingTarget({ type: 'date', key: dateKey, year: y, month: m, day });
-    setNewRange({ start: '', end: '', duration: 15 });
+    setNewRange(createEmptyTimeRange(defaultSlotDuration(day)));
     setUnavailableReason(availabilityDateMap[dateKey]?.reason || '');
     setSelectedDays([day]);
   };
@@ -578,8 +600,8 @@ export default function CalendarAvailabilityScreen() {
           return next;
         });
       }
-      // Keep the editor open so more ranges can be added.
-      setNewRange({ start: '', end: '', duration: 15 });
+      // Keep the editor open so more ranges can be added, at the same length.
+      setNewRange(createEmptyTimeRange(Number(newRange.duration) || 15));
       showToast('Slot saved');
     } catch (error) {
       Alert.alert('Calendar', apiMessage(error, error?.message || 'Failed to save availability range'));
@@ -819,7 +841,7 @@ export default function CalendarAvailabilityScreen() {
         setAvailabilityDateMap(nextDateMap);
         saveLocalAvailability(getAllLocalRanges(nextDateMap, availabilityWeekdayMap), nextDateMap);
       }
-      setAdditionalTimeRows([createEmptyTimeRange()]);
+      setAdditionalTimeRows([createEmptyTimeRange(sortedRows[0]?.duration)]);
       setShowAddTimeModal(false);
       showToast('Availability ranges saved');
     } finally {
@@ -944,7 +966,7 @@ export default function CalendarAvailabilityScreen() {
   const createNewClinic = async () => {
     if (!newClinic.name.trim() || !newClinic.location.trim()) return showToast('Clinic name and location are required');
     if (newClinic.phone && !isValidLocalPhoneNumber(newClinic.phone, newClinic.phoneCountryCode)) {
-      return showToast(`Enter a valid ${getPhoneLengthLabel(newClinic.phoneCountryCode)} digit phone number for ${newClinic.phoneCountryCode}`);
+      return showToast(phoneNumberError(newClinic.phone, newClinic.phoneCountryCode, { mobile: false }));
     }
     if (newClinic.fee === '') return showToast('Consultation fee is required');
     if (!isValidClinicFee(newClinic.fee, feeCurrency)) return showToast(`Enter a valid consultation fee in ${feeCurrency}`);
@@ -981,10 +1003,11 @@ export default function CalendarAvailabilityScreen() {
   // ---- multi-range rows ---------------------------------------------------
   const updateAdditionalTimeRow = (index, field, value) =>
     setAdditionalTimeRows((rows) => rows.map((r, i) => (i === index ? { ...r, [field]: field === 'duration' ? Number(value) : value } : r)));
-  const addAdditionalTimeRow = () => setAdditionalTimeRows((rows) => [...rows, createEmptyTimeRange()]);
+  const lastDuration = (rows) => Number(rows[rows.length - 1]?.duration) || defaultSlotDuration();
+  const addAdditionalTimeRow = () => setAdditionalTimeRows((rows) => [...rows, createEmptyTimeRange(lastDuration(rows))]);
   // Trash always works: the last remaining card is cleared instead of removed.
   const removeAdditionalTimeRow = (index) =>
-    setAdditionalTimeRows((rows) => (rows.length === 1 ? [createEmptyTimeRange()] : rows.filter((_, i) => i !== index)));
+    setAdditionalTimeRows((rows) => (rows.length === 1 ? [createEmptyTimeRange(lastDuration(rows))] : rows.filter((_, i) => i !== index)));
 
   const isPresetInRows = (preset) => additionalTimeRows.some((r) => r.start === preset.start && r.end === preset.end);
 
@@ -995,10 +1018,10 @@ export default function CalendarAvailabilityScreen() {
       const existing = rows.findIndex((r) => r.start === preset.start && r.end === preset.end);
       if (existing !== -1) {
         const remaining = rows.filter((_, i) => i !== existing);
-        return remaining.length ? remaining : [createEmptyTimeRange()];
+        return remaining.length ? remaining : [createEmptyTimeRange(lastDuration(rows))];
       }
       const emptyIndex = rows.findIndex((r) => !r.start && !r.end);
-      const filled = { start: preset.start, end: preset.end, duration: 15 };
+      const filled = { start: preset.start, end: preset.end, duration: lastDuration(rows) };
       if (emptyIndex !== -1) return rows.map((r, i) => (i === emptyIndex ? { ...r, start: preset.start, end: preset.end } : r));
       return sortAvailabilityRanges([...rows, filled]);
     });
@@ -1075,7 +1098,7 @@ export default function CalendarAvailabilityScreen() {
         <RangeHint range={rangeEdit} />
         <Text style={s.fieldLabel}>Slot Duration</Text>
         <View style={s.durationRow}>
-          {[5, 10, 15, 20, 30, 45].map((mins) => (
+          {SLOT_DURATIONS.map((mins) => (
             <Pressable key={mins} onPress={() => setRangeEdit((p) => ({ ...p, duration: mins }))} style={[s.durationChip, rangeEdit.duration === mins && s.durationChipActive]}>
               <Text style={[s.durationChipText, rangeEdit.duration === mins && s.durationChipTextActive]}>{mins} min</Text>
             </Pressable>
@@ -1344,11 +1367,11 @@ export default function CalendarAvailabilityScreen() {
                 ) : (
                   <Text style={s.emptyNote}>Tap any calendar date to edit availability or mark unavailable.</Text>
                 )}
-                <Pressable onPress={() => setShowAddTimeModal(true)}>
+                <Pressable onPress={openAddTimeModal}>
                   <Text style={s.addLink}>＋ Add Another Range</Text>
                 </Pressable>
                 <View style={s.divider} />
-                <Pressable style={s.primaryWrap} onPress={() => setShowAddTimeModal(true)}>
+                <Pressable style={s.primaryWrap} onPress={openAddTimeModal}>
                   <LinearGradient colors={doctorGradient} {...gradientDirection} style={s.primary}>
                     <Text style={s.primaryText}>Apply to Selected Dates</Text>
                   </LinearGradient>
@@ -1377,7 +1400,7 @@ export default function CalendarAvailabilityScreen() {
                 {(availabilityWeekdayMap[w] || []).map((range, index) => renderSavedRangeRow('weekday', w, range, index))}
               </View>
             ))}
-            <Pressable style={s.secondary} onPress={() => setShowAddTimeModal(true)}>
+            <Pressable style={s.secondary} onPress={openAddTimeModal}>
               <Text style={s.secondaryText}>Apply to weekdays</Text>
             </Pressable>
           </View>
@@ -1586,7 +1609,7 @@ export default function CalendarAvailabilityScreen() {
                   <RangeHint range={range} />
                   <Text style={s.fieldLabel}>Slot Duration</Text>
                   <View style={s.durationRow}>
-                    {MULTI_RANGE_DURATIONS.map((mins) => (
+                    {SLOT_DURATIONS.map((mins) => (
                       <Pressable key={mins} onPress={() => updateAdditionalTimeRow(index, 'duration', mins)} style={[s.durationChip, range.duration === mins && s.durationChipActive]}>
                         <Text style={[s.durationChipText, range.duration === mins && s.durationChipTextActive]}>{mins} min</Text>
                       </Pressable>
@@ -1684,7 +1707,7 @@ export default function CalendarAvailabilityScreen() {
                           </View>
                           <Text style={s.fieldLabel}>Slot Duration</Text>
                           <View style={s.durationRow}>
-                            {DATE_EDITOR_DURATIONS.map((mins) => (
+                            {SLOT_DURATIONS.map((mins) => (
                               <Pressable key={mins} onPress={() => setNewRange((p) => ({ ...p, duration: mins }))} style={[s.durationChip, newRange.duration === mins && s.durationChipActive]}>
                                 <Text style={[s.durationChipText, newRange.duration === mins && s.durationChipTextActive]}>{mins} min</Text>
                               </Pressable>

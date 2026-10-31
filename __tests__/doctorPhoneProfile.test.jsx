@@ -59,5 +59,5 @@ it('blocks save when a code change makes the existing local number invalid', asy
   await act(async () => root.root.findByType('CountryPhoneInput').props.onChangeCountryCode('+91'));
   await save();
   expect(global.fetch).not.toHaveBeenCalled();
-  expect(mockToast).toHaveBeenCalledWith(expect.stringContaining('10 digit phone number for +91'));
+  expect(mockToast).toHaveBeenCalledWith(expect.stringContaining('valid mobile number for +91'));
 });

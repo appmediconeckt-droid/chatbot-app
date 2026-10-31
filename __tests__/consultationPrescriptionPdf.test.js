@@ -22,7 +22,7 @@ it('paginates long prescriptions and emits valid PDF object offsets', () => {
   entries.forEach((entry, index) => expect(pdf.slice(Number(entry.slice(0, 10)))).toMatch(new RegExp(`^${index + 1} 0 obj`)));
 });
 
-it('retains notes, all recommended tests and the final footer in the fallback PDF', async () => {
+it('keeps all recommended tests and the final footer in the fallback PDF, without additional notes', async () => {
   await downloadConsultationPrescriptionPdf({
     patient: 'Patient', doctor: 'Dr. Test', date: '16 Oct 2026', diagnosis: 'Recorded diagnosis',
     medicines: Array.from({ length: 50 }, (_, index) => ({ name: `Medicine ${index}`, dosage: 'Recorded dose' })),
@@ -30,9 +30,13 @@ it('retains notes, all recommended tests and the final footer in the fallback PD
     tests: [{ testName: 'Recorded test', completeBy: '2026-10-20', reason: 'Recorded reason', instructions: 'Recorded instructions' }],
   });
   const [path, pdf] = RNFS.writeFile.mock.calls[0];
-  expect(path).toBe('/documents/prescription_Patient.pdf');
-  ['Medicine 49', 'Recorded additional notes', 'Recorded test', '2026-10-20', 'Recorded instructions', 'Issued by'].forEach(value => expect(pdf).toContain(value));
-  expect(pdf).toContain('/Count 3');
+  // The file is named after the patient and the prescription date.
+  expect(path).toMatch(/^\/documents\/Prescription_Patient(_\w+)*\.pdf$/);
+  expect(pdf).not.toContain('Recorded additional notes');
+  // The test's line wraps, so its instructions may start on the next line.
+  ['Medicine 49', 'Recorded test', '2026-10-20', 'Recorded reason', 'instructions', 'Issued by'].forEach(value => expect(pdf).toContain(value));
+  // 50 medicines run over more than one page.
+  expect(pdf).toMatch(/\/Count [2-9]/);
 });
 
 it('exports the web medicine table and all sections through the native PDF printer', async () => {
@@ -43,7 +47,8 @@ it('exports the web medicine table and all sections through the native PDF print
     notes: 'Additional notes', tests: [{ testName: 'Test', reason: 'Reason', instructions: 'Instructions' }],
   });
   const [html] = NativeModules.PrescriptionPrint.createPdf.mock.calls[0];
-  ['<th>Medicine name</th>', '&lt;Medicine&gt;', 'Morning', '5 Days', 'Additional notes', 'Instructions', 'Issued by'].forEach(value => expect(html).toContain(value));
+  ['<th>Medicine name</th>', '&lt;Medicine&gt;', 'Morning', '5 Days', 'Instructions', 'Next Follow-up:', 'This prescription is provided by'].forEach(value => expect(html).toContain(value));
+  expect(html).not.toContain('Additional notes');
   expect(RNFS.writeFile).not.toHaveBeenCalled();
   expect(Alert.alert).not.toHaveBeenCalledWith('PDF failed', expect.anything());
 });

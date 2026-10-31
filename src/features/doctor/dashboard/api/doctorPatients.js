@@ -102,6 +102,7 @@ const appointmentVitals = (a) => {
   const vitals = getAppointmentVitals(a);
   return {
     vitals,
+    vitalsBloodGroup: pickFirst(vitals.blood_group, 'N/A'),
     bp: pickFirst(vitals.blood_pressure, 'N/A'),
     pulse: pickFirst(vitals.pulse, 'N/A'),
     temperature: pickFirst(vitals.temperature, 'N/A'),
@@ -218,6 +219,10 @@ const buildPatients = (appointments, doctorName) => {
     existing.records.sort((x, y) => y.sortKey - x.sortKey);
     existing.lastVisit = existing.records[0]?.date || record.date;
     existing.lastVisitKey = existing.records[0]?.sortKey || 0;
+    // The blood group the clinic last recorded in vitals wins over the one on
+    // the patient's profile.
+    const recordedBloodGroup = existing.records.find((r) => !MISSING.includes(r.vitalsBloodGroup))?.vitalsBloodGroup;
+    if (recordedBloodGroup) existing.bloodGroup = recordedBloodGroup;
     byPatient.set(patientId, existing);
   });
   return Array.from(byPatient.values());

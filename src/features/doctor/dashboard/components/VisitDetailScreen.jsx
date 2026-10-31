@@ -1,6 +1,6 @@
 // Visit details — port of the web Patient Details "Visit Details" view
 // (PatientAppointmentDetails/PatientDetailsPage.jsx): patient banner, Visit
-// Information, Vital Signs, complaint + diagnosis, the full prescription
+// Information, the full prescription (which carries the diagnosis)
 // (each medicine with dose, timing and duration), advice, recommended tests,
 // doctor's notes, follow-up, and Download Prescription (the shared paper PDF).
 import React, { useMemo, useState } from 'react';
@@ -58,20 +58,27 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
     }
   };
 
-  const hasDiagnosis = isSet(record.diagnosis);
-  const statusTone = STATUS_TONES[record.status] || { fg: '#475467', bg: '#F2F4F7' };
-  // Only the readings staff actually recorded; the card is hidden when none were.
-  const vitals = [
-    { label: 'Blood Pressure', value: record.bp, unit: 'mmHg', tone: 'rose' },
-    { label: 'Pulse Rate', value: record.pulse, unit: 'bpm', tone: 'teal' },
-    { label: 'Temperature', value: record.temperature, unit: `°${record.temperatureUnit || 'C'}`, tone: 'amber' },
-    { label: 'SpO₂', value: record.spo2, unit: '%', tone: 'blue' },
-    { label: 'Breathing Rate', value: record.respiratoryRate, unit: '/min', tone: 'indigo' },
-    { label: 'Weight', value: record.weight, unit: 'kg', tone: 'violet' },
-    { label: 'Height', value: record.height, unit: 'cm', tone: 'slate' },
-    { label: 'Pain Score', value: record.painScore, unit: '/10', tone: 'rose' },
-  ].filter((v) => isSet(v.value));
-  const hasVitals = vitals.length > 0 || isSet(record.notes);
+  const normalizedStatus = String(record.status || '').toLowerCase() === 'complete' ? 'completed' : String(record.status || '').toLowerCase();
+  const statusTone = STATUS_TONES[normalizedStatus] || { fg: '#475467', bg: '#F2F4F7' };
+  const visitTiles = [
+    { icon: 'calendar', label: 'Date', value: record.date },
+    { icon: 'clock', label: 'Time', value: record.time },
+    isSet(record.consultationMode) && {
+      icon: /video|audio|voice|phone/i.test(record.consultationMode) ? 'video' : 'pin',
+      label: 'Mode',
+      value: MODE_LABELS[record.consultationMode.toLowerCase()] || titleCase(record.consultationMode),
+    },
+    isSet(record.bookingSource) && {
+      icon: /qr|walk/i.test(record.bookingSource) ? 'walk' : 'smartphone',
+      label: 'Booked via',
+      value: SOURCE_LABELS[record.bookingSource] || titleCase(record.bookingSource),
+    },
+  ].filter((tile) => tile && isSet(tile.value));
+  const patientMeta = [
+    isSet(patient.age) ? `${patient.age} yrs` : null,
+    isSet(patient.gender) ? titleCase(patient.gender) : null,
+    isSet(patient.bloodGroup) && !/not recorded/i.test(patient.bloodGroup) ? patient.bloodGroup : null,
+  ].filter(Boolean).join('  •  ');
 
   return (
     <View style={s.screen}>
@@ -82,21 +89,43 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
         <Text style={s.title}>Visit Details</Text>
       </View>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <View style={s.banner}>
-          <View style={s.avatar}><Text translate={false} style={s.avatarText}>{patient.name.charAt(0).toUpperCase()}</Text></View>
-          <View style={s.flex}>
-            <Text translate={false} style={s.name}>{patient.name}</Text>
-            <Text translate={false} style={s.meta}>
-              {[patient.age !== 'N/A' ? `${patient.age} yrs` : null, patient.gender, patient.bloodGroup, unbreakable(patient.phone)].filter(isSet).join(' • ')}
-            </Text>
+        {/* Patient hero: who, the token, and phone + status as chips (the
+            phone gets its own chip so it is never cut off). */}
+        <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.hero}>
+          <View style={[s.heroBubble, s.heroBubbleLarge]} />
+          <View style={[s.heroBubble, s.heroBubbleSmall]} />
+          <View style={s.heroRow}>
+            <View style={s.heroAvatar}>
+              <Text translate={false} style={s.heroAvatarText}>{String(patient.name || 'P').charAt(0).toUpperCase()}</Text>
+            </View>
+            <View style={s.flex}>
+              <Text translate={false} style={s.heroName} numberOfLines={2}>{patient.name}</Text>
+              {!!patientMeta && <Text translate={false} style={s.heroMeta}>{patientMeta}</Text>}
+            </View>
+            {isSet(record.tokenNumber) && (
+              <View style={[s.heroToken, record.isEmergency && s.heroTokenDanger]}>
+                <Text style={s.heroTokenLabel}>TOKEN</Text>
+                <Text translate={false} style={s.heroTokenValue}>#{record.tokenNumber}</Text>
+              </View>
+            )}
           </View>
-          {isSet(record.tokenNumber) && (
-            <View style={[s.token, record.isEmergency && s.tokenDanger]}>
-              <Text style={[s.tokenLabel, record.isEmergency && s.tokenTextDanger]}>Token</Text>
-              <Text translate={false} style={[s.tokenValue, record.isEmergency && s.tokenTextDanger]}>#{record.tokenNumber}</Text>
+          {(isSet(patient.phone) || isSet(record.status)) && (
+            <View style={s.heroChips}>
+              {isSet(patient.phone) && (
+                <View style={s.heroChip}>
+                  <AppIcon name="phone" size={13} color="#FFFFFF" strokeWidth={2.2} />
+                  <Text translate={false} selectable style={s.heroChipText}>{unbreakable(patient.phone)}</Text>
+                </View>
+              )}
+              {isSet(record.status) && (
+                <View style={[s.statusChip, { backgroundColor: statusTone.bg }]}>
+                  <View style={[s.statusDot, { backgroundColor: statusTone.fg }]} />
+                  <Text style={[s.statusChipText, { color: statusTone.fg }]}>{titleCase(normalizedStatus)}</Text>
+                </View>
+              )}
             </View>
           )}
-        </View>
+        </LinearGradient>
 
         {record.isEmergency && (
           <View style={s.emergency}>
@@ -108,68 +137,27 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
           </View>
         )}
 
-        <Card title="Visit Information" icon="calendar">
-          <Row label="Date" value={record.date} />
-          <Row label="Time" value={record.time} />
-          {isSet(record.consultationMode) && (
-            <Row label="Consultation Mode" value={MODE_LABELS[record.consultationMode.toLowerCase()] || titleCase(record.consultationMode)} />
-          )}
-          {isSet(record.bookingSource) && (
-            <Row label="Booked Via" value={SOURCE_LABELS[record.bookingSource] || titleCase(record.bookingSource)} />
-          )}
-          <Row label="Consulting Doctor" value={record.doctor} highlight last={!isSet(record.status)} />
-          {isSet(record.status) && (
-            <View style={[s.row, s.rowLast]}>
-              <Text style={s.rowLabel}>Status</Text>
-              <Text style={[s.statusPill, { color: statusTone.fg, backgroundColor: statusTone.bg }]}>{titleCase(record.status)}</Text>
+        {visitTiles.length > 0 && (
+          <Card title="Visit Information" icon="calendar">
+            {/* No "Consulting Doctor" row: the doctor reading this is that doctor. */}
+            <View style={s.infoGrid}>
+              {visitTiles.map((tile) => (
+                <View key={tile.label} style={s.infoTile}>
+                  <View style={s.infoTileIcon}><AppIcon name={tile.icon} size={15} color="#0D9488" strokeWidth={2.1} /></View>
+                  <View style={s.flex}>
+                    <Text style={s.infoTileLabel}>{tile.label}</Text>
+                    <Text translate={false} style={s.infoTileValue} numberOfLines={2}>{tile.value}</Text>
+                  </View>
+                </View>
+              ))}
             </View>
-          )}
-        </Card>
-
-        {hasVitals && (
-          <Card title="Vital Signs" icon="pulse" count={vitals.length}>
-            {vitals.length > 0 && (
-              <View style={s.vitals}>
-                {vitals.map((v) => <Vital key={v.label} {...v} />)}
-              </View>
-            )}
-            {isSet(record.notes) && (
-              <View style={s.vitalsNotesBox}>
-                <Text style={s.vitalsNotesLabel}>Notes</Text>
-                <Text translate={false} style={s.vitalsNotes}>{record.notes}</Text>
-              </View>
-            )}
-            {isSet(record.recordedAt) && (
-              <View style={s.vitalsRecordedRow}>
-                <AppIcon name="clock" size={12} color="#98A2B3" />
-                <Text translate={false} style={s.vitalsRecorded}>Recorded {new Date(record.recordedAt).toLocaleString('en-IN')}</Text>
-              </View>
-            )}
           </Card>
         )}
 
-        {(isSet(record.problem) || isSet(record.patientNotes) || hasDiagnosis) && (
-          <Card title={hasDiagnosis ? 'Complaint & Diagnosis' : 'Complaint'} icon="note">
-            {isSet(record.problem) && (
-              <View style={[s.infoBlock, s.problemBlock]}>
-                <Text style={[s.label, s.problemLabel]}>Presenting Problem</Text>
-                <Text translate={false} style={s.problem}>{record.problem}</Text>
-              </View>
-            )}
-            {isSet(record.patientNotes) && (
-              <View style={[s.infoBlock, s.notesBlock]}>
-                <Text style={s.label}>Patient's Notes</Text>
-                <Text translate={false} style={s.body}>{record.patientNotes}</Text>
-              </View>
-            )}
-            {hasDiagnosis && (
-              <View style={[s.infoBlock, s.diagnosisBlock]}>
-                <Text style={[s.label, s.diagnosisLabel]}>Diagnosis</Text>
-                <Text translate={false} style={s.diagnosis}>{record.diagnosis}</Text>
-              </View>
-            )}
-          </Card>
-        )}
+        {/* No vitals here: the patient's page shows the latest recorded ones. */}
+
+        {/* No complaint or diagnosis card here: the prescription below already
+            carries the diagnosis. */}
 
         <View style={s.rxHead}>
           <View style={s.cardIcon}><AppIcon name="file" size={14} color="#0D9488" /></View>
@@ -188,7 +176,7 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
             </Pressable>
           </View>
         ) : prescription ? (
-          <ConsultationPrescriptionDocument data={prescription} />
+          <ConsultationPrescriptionDocument data={prescription} bleed={14} />
         ) : (
           <View style={s.rxState}>
             <ActivityIndicator color="#0D9488" />
@@ -223,28 +211,6 @@ function Card({ title, icon, count, children }) {
   );
 }
 
-function Row({ label, value, highlight, last }) {
-  return (
-    <View style={[s.row, last && s.rowLast]}>
-      <Text style={s.rowLabel}>{label}</Text>
-      <Text translate={false} style={[s.rowValue, highlight && s.rowHighlight]} numberOfLines={2}>{value}</Text>
-    </View>
-  );
-}
-
-function Vital({ label, value, unit, tone }) {
-  return (
-    <View style={[s.vital, s[`vital_${tone}`]]}>
-      <View style={[s.vitalAccent, s[`accent_${tone}`]]} />
-      <Text style={s.vitalLabel}>{label}</Text>
-      <Text translate={false} style={s.vitalValue}>
-        {String(value).trim()}
-        <Text translate={false} style={s.vitalUnit}>{unit.startsWith('/') || unit.startsWith('°') || unit === '%' ? unit : ` ${unit}`}</Text>
-      </Text>
-    </View>
-  );
-}
-
 const s = createDoctorStyles({
   retry: { color: '#0D9488', fontWeight: '800', fontSize: 13.5 },
   retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: '#E6FBF8', marginTop: 4 },
@@ -253,71 +219,47 @@ const s = createDoctorStyles({
   rxState: { alignItems: 'center', gap: 8, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E3EEEC', borderRadius: 16, paddingVertical: 28, paddingHorizontal: 16 },
   rxStateText: { fontSize: 13.5, lineHeight: 19, color: '#475467', textAlign: 'center' },
   disabled: { opacity: 0.5 },
-  screen: { flex: 1, backgroundColor: '#FFFFFF' },
+  screen: { flex: 1, backgroundColor: '#F4F8F7' },
   flex: { flex: 1 },
   header: { height: 60, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7E7E4', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   title: { fontSize: 18, fontWeight: '800', color: '#0D9488' },
   content: { padding: 14, paddingBottom: 20 },
-  banner: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F0FDFA', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#CCFBF1' },
-  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFF', borderWidth: 2, borderColor: '#99F6E4', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 20, fontWeight: '800', color: '#0F766E' },
-  name: { fontSize: 17, fontWeight: '800', color: '#17243A' },
-  meta: { fontSize: 12.5, color: '#667085', marginTop: 3 },
-  token: { alignItems: 'center', backgroundColor: '#E6FBF8', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 },
-  tokenDanger: { backgroundColor: '#FEE2E2' },
-  tokenLabel: { fontSize: 10, fontWeight: '800', color: '#0F766E', textTransform: 'uppercase', letterSpacing: 0.4 },
-  tokenValue: { fontSize: 17, fontWeight: '900', color: '#0F766E' },
-  tokenTextDanger: { color: '#DC2626' },
+  hero: { borderRadius: 20, padding: 16, overflow: 'hidden' },
+  heroBubble: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.1)' },
+  heroBubbleLarge: { width: 150, height: 150, top: -60, right: -40 },
+  heroBubbleSmall: { width: 80, height: 80, bottom: -36, left: 90 },
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  heroAvatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center' },
+  heroAvatarText: { fontSize: 22, fontWeight: '900', color: '#0F766E' },
+  heroName: { fontSize: 19, fontWeight: '800', color: '#FFFFFF' },
+  heroMeta: { fontSize: 12.5, fontWeight: '600', color: 'rgba(255,255,255,0.85)', marginTop: 3 },
+  heroToken: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
+  heroTokenDanger: { backgroundColor: 'rgba(220,38,38,0.55)' },
+  heroTokenLabel: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.8, color: 'rgba(255,255,255,0.85)' },
+  heroTokenValue: { fontSize: 19, fontWeight: '900', color: '#FFFFFF' },
+  heroChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  heroChip: { maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
+  heroChipText: { flexShrink: 1, fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  statusChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999 },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  statusChipText: { fontSize: 12.5, fontWeight: '800' },
   emergency: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 14, padding: 12, marginTop: 12 },
   emergencyTitle: { fontSize: 14, fontWeight: '800', color: '#B42318' },
   emergencyText: { fontSize: 13, lineHeight: 18, color: '#7A271A', marginTop: 2 },
-  card: { backgroundColor: '#FFF', borderRadius: 16, padding: 14, marginTop: 12, borderWidth: 1, borderColor: '#E3EEEC' },
+  card: {
+    backgroundColor: '#FFF', borderRadius: 18, padding: 14, marginTop: 12, borderWidth: 1, borderColor: '#E3EEEC',
+    shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   cardIcon: { width: 28, height: 28, borderRadius: 9, backgroundColor: '#E6FBF8', alignItems: 'center', justifyContent: 'center' },
   cardTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: '#17243A' },
   cardCount: { fontSize: 12, fontWeight: '800', color: '#FFF', backgroundColor: '#0D9488', minWidth: 22, textAlign: 'center', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#EEF3F2' },
-  rowLast: { borderBottomWidth: 0 },
-  rowLabel: { fontSize: 13, color: '#667085' },
-  rowValue: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: '#17243A', textAlign: 'right' },
-  rowHighlight: { color: '#0F766E' },
-  statusPill: { fontSize: 12, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
-  vitals: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
-  vital: { width: '48.5%', borderRadius: 14, paddingVertical: 11, paddingLeft: 14, paddingRight: 10, overflow: 'hidden' },
-  vitalAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
-  accent_rose: { backgroundColor: '#F43F5E' },
-  accent_teal: { backgroundColor: '#14B8A6' },
-  accent_amber: { backgroundColor: '#F59E0B' },
-  accent_blue: { backgroundColor: '#3B82F6' },
-  accent_indigo: { backgroundColor: '#6366F1' },
-  accent_violet: { backgroundColor: '#8B5CF6' },
-  accent_slate: { backgroundColor: '#64748B' },
-  vital_rose: { backgroundColor: '#FFF1F2' },
-  vital_teal: { backgroundColor: '#F0FDFA' },
-  vital_amber: { backgroundColor: '#FFFBEB' },
-  vital_blue: { backgroundColor: '#EFF6FF' },
-  vital_indigo: { backgroundColor: '#EEF2FF' },
-  vital_violet: { backgroundColor: '#F5F3FF' },
-  vital_slate: { backgroundColor: '#F8FAFC' },
-  vitalLabel: { fontSize: 11.5, fontWeight: '600', color: '#667085' },
-  vitalValue: { fontSize: 18, fontWeight: '800', color: '#17243A', marginTop: 3 },
-  vitalUnit: { fontSize: 12, fontWeight: '600', color: '#667085' },
-  vitalsNotesBox: { backgroundColor: '#F8FAFC', borderRadius: 12, padding: 11, marginTop: 10 },
-  vitalsNotesLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3, color: '#667085', textTransform: 'uppercase' },
-  vitalsNotes: { fontSize: 13, lineHeight: 19, color: '#344054', marginTop: 3 },
-  vitalsRecordedRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10 },
-  vitalsRecorded: { fontSize: 11.5, color: '#98A2B3' },
-  label: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, color: '#667085', textTransform: 'uppercase' },
-  infoBlock: { borderRadius: 12, padding: 12, marginTop: 8, borderLeftWidth: 3 },
-  problemBlock: { marginTop: 0, backgroundColor: '#F0FDFA', borderLeftColor: '#14B8A6' },
-  problemLabel: { color: '#0F766E' },
-  problem: { fontSize: 15, fontWeight: '800', color: '#0F766E', marginTop: 4 },
-  notesBlock: { backgroundColor: '#F8FAFC', borderLeftColor: '#CBD5E1' },
-  diagnosisBlock: { backgroundColor: '#EEF2FF', borderLeftColor: '#6366F1' },
-  diagnosisLabel: { color: '#4338CA' },
-  diagnosis: { fontSize: 14.5, fontWeight: '700', color: '#1E1B4B', marginTop: 4, lineHeight: 21 },
-  body: { fontSize: 13.5, lineHeight: 20, color: '#344054', marginTop: 4 },
+  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
+  infoTile: { width: '48.5%', flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, borderRadius: 14, backgroundColor: '#F6FBFA', borderWidth: 1, borderColor: '#E1F1EE' },
+  infoTileIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#E6FBF8', alignItems: 'center', justifyContent: 'center' },
+  infoTileLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4, color: '#667085', textTransform: 'uppercase' },
+  infoTileValue: { fontSize: 13.5, fontWeight: '800', color: '#17243A', marginTop: 2 },
   med: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#F8FFFE', borderWidth: 1, borderColor: '#CCFBF1', borderRadius: 12, padding: 11 },
   medSpaced: { marginTop: 8 },
   medIndex: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#0D9488', alignItems: 'center', justifyContent: 'center' },

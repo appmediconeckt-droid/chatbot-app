@@ -252,56 +252,73 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
       <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setMenuOpen(false)}>
         <View style={s.drawerRoot}>
           <View style={[s.drawer, { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 16 }]}>
-            <View style={s.brandRow}>
-              <View style={s.brandMark}><Image source={humaeliIcon} style={s.brandLogo} resizeMode="contain" /></View>
+            <View style={s.drawerHeader}>
+              <View style={s.brandMark}>
+                <Image source={humaeliIcon} style={s.brandLogo} resizeMode="contain" />
+              </View>
               <View style={s.flex}>
-                {/* Brand name: never translated. */}
-                <Text translate={false} style={s.brand}>Humaeli</Text>
-                <Text style={s.brandSub}>RECEPTIONIST PORTAL</Text>
+                <View style={s.brandNameRow}>
+                  <Text translate={false} style={s.drawerTitle}>Humaeli</Text>
+                  <View style={s.portalBadge}><Text style={s.portalBadgeText}>PORTAL</Text></View>
+                </View>
+                <Text style={s.drawerSubtitle}>Receptionist workspace</Text>
               </View>
               <Pressable onPress={() => setMenuOpen(false)} style={s.iconButton} hitSlop={8} accessibilityLabel="Close navigation">
                 <Ionicons name="close" size={20} color={REC.ink} />
               </Pressable>
             </View>
-            <View style={s.account}>
-              <Avatar photo={profilePhotoOf(profile || {})} name={profile?.fullName} size={42} />
-              <View style={s.flex}>
-                <Text translate={false} style={s.accountName} numberOfLines={1}>{profile?.fullName || 'Receptionist'}</Text>
-              </View>
-            </View>
-            <Text style={s.navLabel}>WORKSPACE</Text>
-            <ScrollView style={s.flex} showsVerticalScrollIndicator={false}>
-              {MENU.filter((item) => !item.tab).map((item) => {
-                const active = item.key === section;
-                return (
-                  <Pressable key={item.key} onPress={() => navigateTo(item.key)} style={[s.navItem, active && s.navItemActive]}>
-                    <Ionicons name={item.icon} size={19} color={active ? REC.softText : '#5B6B7B'} />
-                    <Text style={[s.navText, active && s.navTextActive]}>{item.title}</Text>
-                  </Pressable>
-                );
-              })}
+            <ScrollView style={s.flex} contentContainerStyle={s.navContent} showsVerticalScrollIndicator={false}>
+              {[
+                { label: 'OPERATIONS', items: MENU.filter((item) => !item.tab && !['profile', 'settings'].includes(item.key)) },
+                { label: 'ACCOUNT', items: MENU.slice(6) },
+              ].map((group) => (
+                <View key={group.label} style={s.navGroup}>
+                  <Text style={s.navLabel}>{group.label}</Text>
+                  {group.items.map((item) => {
+                    const active = item.key === section;
+                    return (
+                      <Pressable
+                        key={item.key}
+                        onPress={() => navigateTo(item.key)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        style={({ pressed }) => [s.navItem, active && s.navItemActive, pressed && s.navItemPressed]}
+                      >
+                        {active && <View style={s.activeRail} />}
+                        <View style={[s.navIcon, active && s.navIconActive]}>
+                          <Ionicons name={active ? (item.activeIcon || item.icon) : item.icon} size={18} color={active ? REC.primary : '#667786'} />
+                        </View>
+                        <Text style={[s.navText, active && s.navTextActive]} numberOfLines={1}>{item.title}</Text>
+                        {active && <Ionicons name="chevron-forward" size={15} color={REC.primary} />}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
             </ScrollView>
-            <LanguageSelector
-              userId={receptionistId || null}
-              role="receptionist"
-              brand={REC.primary}
-              triggerStyle={s.languageItem}
-            >
-              <View style={s.languageIcon}>
-                <Ionicons name="globe-outline" size={18} color={REC.primary} />
+            <View style={s.drawerFooter}>
+              <LanguageSelector
+                userId={receptionistId || null}
+                role="receptionist"
+                brand={REC.primary}
+                triggerStyle={s.languageItem}
+              >
+                <View style={s.languageIcon}>
+                  <Ionicons name="globe-outline" size={17} color={REC.primary} />
+                </View>
+                <Text style={s.navText}>Language</Text>
+                <Text translate={false} style={s.languageValue} numberOfLines={1}>{currentLanguageName}</Text>
+                <Ionicons name="chevron-forward" size={15} color="#98A2B3" />
+              </LanguageSelector>
+              <View style={s.accessNote}>
+                <View style={s.accessIcon}><Ionicons name="shield-checkmark" size={14} color={REC.primary} /></View>
+                <Text style={s.accessText}>Securely connected to your assigned doctor</Text>
               </View>
-              <Text style={s.navText}>Language</Text>
-              <Text translate={false} style={s.languageValue} numberOfLines={1}>{currentLanguageName}</Text>
-              <Ionicons name="chevron-forward" size={16} color="#98A2B3" />
-            </LanguageSelector>
-            <View style={s.accessNote}>
-              <Ionicons name="shield-checkmark-outline" size={18} color={REC.primary} />
-              <Text style={s.accessText}>Connected to your <Text style={s.accessStrong}>assigned doctor</Text></Text>
+              <Pressable onPress={() => { setMenuOpen(false); onLogout(); }} disabled={loggingOut} style={({ pressed }) => [s.logout, pressed && s.logoutPressed]}>
+                <View style={s.logoutIcon}><Ionicons name="log-out-outline" size={17} color="#B42318" /></View>
+                <Text style={s.logoutText}>{loggingOut ? 'Logging out...' : 'Logout'}</Text>
+              </Pressable>
             </View>
-            <Pressable onPress={() => { setMenuOpen(false); onLogout(); }} disabled={loggingOut} style={s.logout}>
-              <Ionicons name="log-out-outline" size={19} color="#B42318" />
-              <Text style={s.logoutText}>{loggingOut ? 'Logging out...' : 'Logout'}</Text>
-            </Pressable>
           </View>
           <Pressable style={s.backdrop} onPress={() => setMenuOpen(false)} accessibilityLabel="Close navigation" />
         </View>
@@ -326,26 +343,36 @@ const s = StyleSheet.create({
   bottomLabel: { fontSize: 11.5, lineHeight: 15, marginTop: 2, color: '#747B87', textAlign: 'center', width: '100%' },
   bottomLabelActive: { color: REC.primary, fontWeight: '700' },
   drawerRoot: { flex: 1, flexDirection: 'row' },
-  drawer: { width: '80%', maxWidth: 320, backgroundColor: '#FFFFFF', paddingHorizontal: 16 },
-  backdrop: { flex: 1, backgroundColor: 'rgba(32,50,72,0.5)' },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  brandMark: { width: 42, height: 42, borderRadius: 13, backgroundColor: '#E8F5F0', alignItems: 'center', justifyContent: 'center' },
-  brandLogo: { width: 34, height: 34 },
-  brand: { fontSize: 22, fontWeight: '800', color: REC.primary },
-  brandSub: { fontSize: 9, letterSpacing: 1.6, fontWeight: '700', color: REC.muted, marginTop: 2 },
-  account: { flexDirection: 'row', alignItems: 'center', gap: 11, marginTop: 22, padding: 12, borderRadius: 12, backgroundColor: '#F7FAF9', borderWidth: 1, borderColor: REC.line },
-  accountName: { fontSize: 14.5, fontWeight: '700', color: REC.ink },
-  navLabel: { fontSize: 10, letterSpacing: 1.6, fontWeight: '700', color: '#98A2B3', marginTop: 22, marginBottom: 8, marginLeft: 6 },
-  navItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, height: 46, borderRadius: 10, marginBottom: 2 },
-  navItemActive: { backgroundColor: '#FFFFFF' },
-  navText: { fontSize: 14, color: '#465668' },
-  navTextActive: { color: REC.softText, fontWeight: '700' },
-  languageItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, height: 48, borderRadius: 10, marginTop: 8, borderWidth: 1, borderColor: REC.line, backgroundColor: '#FFFFFF' },
-  languageIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
-  languageValue: { flex: 1, textAlign: 'right', fontSize: 13, fontWeight: '700', color: REC.primary },
-  accessNote: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, backgroundColor: '#F4F8F7', marginTop: 10 },
-  accessText: { flex: 1, fontSize: 12, color: '#718A82' },
-  accessStrong: { fontWeight: '700', color: REC.ink },
-  logout: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, height: 50, borderRadius: 12, marginTop: 10, backgroundColor: '#FFF8F7', borderWidth: 1, borderColor: '#F3D5D1' },
-  logoutText: { fontSize: 14, fontWeight: '700', color: '#B42318' },
+  drawer: { width: '84%', maxWidth: 336, backgroundColor: '#FFFFFF', paddingHorizontal: 18, borderTopRightRadius: 22, borderBottomRightRadius: 22, overflow: 'hidden' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(18,35,52,0.58)' },
+  drawerHeader: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#EEF2F4' },
+  brandMark: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#E8F5F0', borderWidth: 1, borderColor: '#D4EAE3', alignItems: 'center', justifyContent: 'center' },
+  brandLogo: { width: 35, height: 35 },
+  brandNameRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  drawerTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.35, color: REC.primary },
+  drawerSubtitle: { fontSize: 10.5, fontWeight: '600', color: REC.muted, marginTop: 2 },
+  portalBadge: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, backgroundColor: '#EAF5F1' },
+  portalBadgeText: { fontSize: 8, fontWeight: '800', letterSpacing: 0.8, color: REC.primary },
+  navContent: { paddingVertical: 14 },
+  navGroup: { marginBottom: 8 },
+  navLabel: { fontSize: 9.5, letterSpacing: 1.5, fontWeight: '800', color: '#98A2B3', marginTop: 5, marginBottom: 7, marginLeft: 10 },
+  navItem: { position: 'relative', flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 9, height: 48, borderRadius: 12, marginBottom: 3, overflow: 'hidden' },
+  navItemActive: { backgroundColor: '#EAF5F1', borderWidth: 1, borderColor: '#D5EAE3' },
+  navItemPressed: { opacity: 0.72 },
+  activeRail: { position: 'absolute', left: 0, width: 3, height: 24, borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: REC.primary },
+  navIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#F2F5F6', alignItems: 'center', justifyContent: 'center' },
+  navIconActive: { backgroundColor: '#D7ECE5' },
+  navText: { flex: 1, fontSize: 13.5, fontWeight: '500', color: '#465668' },
+  navTextActive: { color: REC.primaryDark, fontWeight: '800' },
+  drawerFooter: { paddingTop: 11, borderTopWidth: 1, borderTopColor: '#EEF2F4' },
+  languageItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, height: 44, borderRadius: 11, borderWidth: 1, borderColor: REC.line, backgroundColor: '#FFFFFF' },
+  languageIcon: { width: 28, height: 28, borderRadius: 9, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  languageValue: { maxWidth: 76, textAlign: 'right', fontSize: 12, fontWeight: '700', color: REC.primary },
+  accessNote: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 6, paddingVertical: 9 },
+  accessIcon: { width: 24, height: 24, borderRadius: 8, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  accessText: { flex: 1, fontSize: 10.5, lineHeight: 14, color: REC.muted },
+  logout: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 44, paddingHorizontal: 10, borderRadius: 11, borderWidth: 1, borderColor: '#F1D5D2', backgroundColor: '#FFF8F7' },
+  logoutPressed: { opacity: 0.7 },
+  logoutIcon: { width: 28, height: 28, borderRadius: 9, backgroundColor: '#FCE9E7', alignItems: 'center', justifyContent: 'center' },
+  logoutText: { fontSize: 13.5, fontWeight: '700', color: '#B42318' },
 });

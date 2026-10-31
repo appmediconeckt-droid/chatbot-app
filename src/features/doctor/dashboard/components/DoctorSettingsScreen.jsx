@@ -1,10 +1,9 @@
 import AppVersionFooter from '../../../../components/common/AppVersionFooter';
 // Doctor settings — same sections as the web Setting/Setting.jsx:
 // Profile, Clinic, Payment, Profile QR, Change Password (POST /auth/changePassword,
-// then sign out), Logout, Help & Support, Privacy, Delete Account (DELETE /auth/delete).
+// then sign out), Logout, Help & Support, Delete Account (DELETE /auth/delete).
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, View } from 'react-native';
-import { loadPublicProfileLink } from '../api/doctorPublicProfile';
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -40,20 +39,7 @@ const APP_ROWS = [
 
 const MORE_ROWS = [
   { key: 'help', icon: 'info', title: 'Help & Support', subtitle: 'FAQs, contact support, report a problem' },
-  { key: 'privacy', icon: 'eye', title: 'Privacy Policy', subtitle: 'How your profile and clinic information is used' },
 ];
-
-const INFO = {
-  privacy: {
-    title: 'Privacy Policy',
-    intro: 'Your doctor profile and clinic information are used to support appointment booking and patient communication.',
-    // [title, text, action]: each row opens the matching place (see openInfoAction).
-    items: [
-      ['Public Information', 'Only profile and clinic details intended for patients are displayed publicly. Tap to see your public profile.', 'publicProfile'],
-      ['Account Security', 'Change your password, turn on App Lock and manage this device.', 'privacySecurity'],
-    ],
-  },
-};
 
 export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, onOpenCard, navigation }) {
   const [view, setView] = useState('list');
@@ -110,22 +96,6 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
 
   const back = () => setView('list');
 
-  // Privacy page rows: "Public Information" opens the doctor's public profile
-  // (the page patients reach from the QR code); "Account Security" opens
-  // Privacy & Security (password, App Lock, this device).
-  const openInfoAction = (action) => {
-    if (action === 'privacySecurity') {
-      setView('privacySecurity');
-      return;
-    }
-    if (action === 'publicProfile') {
-      getStoredDoctorUser()
-        .then((stored) => loadPublicProfileLink(stored))
-        .then((url) => Linking.openURL(url))
-        .catch((err) => Alert.alert('Public profile', err?.message || 'Could not open your public profile.'));
-    }
-  };
-
   if (view === 'privacySecurity') {
     return (
       <DoctorPrivacySecurityScreen
@@ -139,11 +109,7 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
   if (view === 'notifications') return <DoctorNotificationPreferencesScreen onBack={back} />;
   if (view === 'help') {
     return (
-      <DoctorHelpSupportScreen
-        onBack={back}
-        onOpenNotifications={() => setView('notifications')}
-        onOpenPrivacySecurity={() => setView('privacySecurity')}
-      />
+      <DoctorHelpSupportScreen onBack={back} />
     );
   }
   if (view === 'clinic') return <DoctorClinicSettingsScreen onBack={back} />;
@@ -160,39 +126,6 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
       />
     );
   }
-  if (INFO[view]) {
-    const info = INFO[view];
-    return (
-      <View style={s.screen}>
-        <View style={s.header}>
-          <Pressable onPress={back} style={s.backButton} hitSlop={8}>
-            <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
-          </Pressable>
-          <Text style={s.title}>{info.title}</Text>
-        </View>
-        <ScrollView contentContainerStyle={s.content}>
-          <Text style={s.infoIntro}>{info.intro}</Text>
-          <View style={s.card}>
-            {info.items.map(([title, text, action], index) => (
-              <Pressable
-                key={title}
-                onPress={action ? () => openInfoAction(action) : undefined}
-                disabled={!action}
-                style={[s.row, index === info.items.length - 1 && s.rowLast]}
-              >
-                <View style={s.rowBody}>
-                  <Text style={s.rowTitle}>{title}</Text>
-                  <Text style={s.rowSubtitle}>{text}</Text>
-                </View>
-                {!!action && <AppIcon name="chevron-right" size={18} color="#9AA6B8" strokeWidth={2} />}
-              </Pressable>
-            ))}
-          </View>
-        </ScrollView>
-      </View>
-    );
-  }
-
   const open = (key) => {
     if (key === 'profileQR') return onOpenCard?.();
     return setView(key);
@@ -322,7 +255,6 @@ const s = createDoctorStyles({
   },
   logoutText: { fontSize: 15, fontWeight: '700', color: '#DC2626' },
   cardSpaced: { marginTop: 20 },
-  infoIntro: { fontSize: 14, lineHeight: 20, color: '#475467', marginBottom: 14 },
   dangerCard: {
     backgroundColor: '#FFF',
     borderWidth: 1,

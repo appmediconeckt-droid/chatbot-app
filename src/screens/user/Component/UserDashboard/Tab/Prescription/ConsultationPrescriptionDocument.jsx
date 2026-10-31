@@ -1,332 +1,354 @@
-import React from 'react';
-import { Image, StyleSheet, useWindowDimensions, View } from 'react-native';
+// The in-app prescription page — the web's common/PrescriptionDocument.jsx as
+// it shows on a phone (its ≤650px stylesheet), so the doctor, the reception
+// desk and the patient see the same page they download as a PDF:
+// letterhead (logo + clinic, consulting doctor, booking QR), patient table,
+// "Consultation Prescription", consultation / diagnosis, medicines table,
+// advice, notes, tests, follow-up and sign-off, contact and brand footers.
+import React, { useEffect, useState } from 'react';
+import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import Text from '../../../../../../components/TranslatedText';
 import {
-  followUpText,
-  shortRxNumber,
+  documentDate,
   medicineDuration,
   medicineTiming,
   testLine,
 } from '../../../../../../utils/consultationPrescriptionDocument';
+import { withBookingQr } from '../../../../../../utils/prescriptionBookingQr';
 
 const BRAND = require('../../../../../../image/prescriptionBrand.png');
-const WATERMARK = require('../../../../../../image/prescriptionWatermark.png');
-const FOOTER_LOGO = require('../../../../../../image/HumaeliIconRound.png');
+// The web uses its round logo icon for both the watermark and the footer mark.
+const LOGO_ICON = require('../../../../../../image/prescriptionWatermark.png');
 
-const INK = '#193D42';
+const INK = '#183B3B';
 const TEAL = '#0F766E';
 const MUTED = '#64748B';
-const LINE = '#E2E8F0';
+const RULE = '#CBD5E1';
 
-// The document builders fill missing fields with '—'.
-const hasValue = (value) => !!String(value ?? '').trim() && String(value).trim() !== '—';
+const has = (value) => Boolean(String(value ?? '').trim());
+
+// The largest the doctor's signature is drawn, as on the PDF.
+const SIGNATURE_BOX = { width: 145, height: 46 };
+
+// The PDF's medicine table columns (S. No. / name / dosage / duration /
+// instructions), so the page and the download match.
+const COLUMNS = [['S. No.', 9], ['Medicine name', 33], ['Dosage', 18], ['Duration', 16], ['Instructions', 24]];
 
 // `data` is doctorRxToDocument(rx) / appointmentToDocument(appointment).
-export default function ConsultationPrescriptionDocument({ data }) {
-  const wide = useWindowDimensions().width >= 600;
-  const doctorLines = [data.qualification, data.specialization, data.registration && `Reg. No.: ${data.registration}`].filter(hasValue);
-  const clinicLines = [data.clinic, data.address].filter(hasValue);
-  const contactLine = [data.doctorPhone, data.doctorEmail].filter(hasValue).join('  ·  ');
-  const ageGender = [hasValue(data.age) && `${data.age} yrs`, hasValue(data.gender) && data.gender].filter(Boolean).join(' / ');
-  const weight = hasValue(data.weight) ? `${data.weight}${/kg/i.test(data.weight) ? '' : ' kg'}` : '';
-  const followUp = followUpText(data);
-  const hasFollowUp = followUp !== 'No follow-up scheduled';
+// `bleed`: the horizontal padding of the screen it sits in — the page spreads
+// over it to the screen edges (full width) instead of sitting inset.
+export default function ConsultationPrescriptionDocument({ data, bleed = 0 }) {
+  // Small phones: a smaller logo and QR so the letterhead fits without cutting
+  // anything off.
+  const compact = useWindowDimensions().width < 400;
+  const [bookingQr, setBookingQr] = useState(data.bookingQr || '');
+  // The signature drawn at its own shape (at most 145 × 46) so it sits right on
+  // the doctor's name; a fixed box with "contain" left a gap under a wide one.
+  const [signatureSize, setSignatureSize] = useState(SIGNATURE_BOX);
+  useEffect(() => {
+    let active = true;
+    setSignatureSize(SIGNATURE_BOX);
+    if (data.signature) {
+      Image.getSize?.(data.signature, (width, height) => {
+        if (!active || !(width > 0) || !(height > 0)) return;
+        const scale = Math.min(SIGNATURE_BOX.width / width, SIGNATURE_BOX.height / height);
+        setSignatureSize({ width: Math.round(width * scale), height: Math.round(height * scale) });
+      }, () => {});
+    }
+    return () => { active = false; };
+  }, [data.signature]);
+  useEffect(() => {
+    let active = true;
+    setBookingQr(data.bookingQr || '');
+    if (!data.bookingQr && data.doctorId) {
+      withBookingQr(data).then((loaded) => { if (active) setBookingQr(loaded.bookingQr || ''); });
+    }
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.doctorId, data.bookingQr]);
+
+  const gender = has(data.gender) && data.gender !== '—' ? data.gender : '';
+  const ageGender = [has(data.age) && `${data.age} years`, gender].filter(Boolean).join(' / ');
+  const weight = has(data.weight) ? `${data.weight}${/kg/i.test(String(data.weight)) ? '' : ' kg'}` : '';
+  const medicines = Array.isArray(data.medicines) ? data.medicines : [];
+  const tests = Array.isArray(data.tests) ? data.tests : [];
+  const advice = String(data.advice || '');
+  const adviceLines = advice.split(/\n+/).map((line) => line.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean);
+  const contact = [data.doctorPhone, data.doctorEmail].filter(has).join(' | ');
+  const followUp = data.followUp ? documentDate(data.followUp) : data.followUpRequired ? 'Required' : 'No follow-up scheduled';
 
   return (
-    <View style={s.doc}>
-      {/* Faint, centred behind the content — clear of the header and sign-off. */}
+    <View style={[s.doc, bleed > 0 && s.docBleed, bleed > 0 && { marginHorizontal: -bleed }]}>
       <View pointerEvents="none" style={s.watermarkWrap}>
-        <Image source={WATERMARK} style={s.watermark} accessible={false} />
+        <Image source={LOGO_ICON} style={s.watermark} accessible={false} />
       </View>
 
       {/* Letterhead */}
-      <View style={s.letterhead}>
-        <View style={[s.headTop, wide && s.headTopWide]}>
-          <Image source={BRAND} style={s.logo} accessibilityLabel="Humaeli" />
-          <View style={s.doctorBlock}>
-            <Text style={s.eyebrow}>Prescribing doctor</Text>
-            <Text translate={false} style={s.doctorName}>{data.doctor}</Text>
-            {doctorLines.map((line, i) => <Text key={i} translate={false} style={s.doctorLine}>{line}</Text>)}
-          </View>
+      <LinearGradient colors={['#F0FDFA', '#FFFFFF']} start={{ x: 0, y: 0.2 }} end={{ x: 0.75, y: 0.8 }} style={[s.header, compact && s.headerCompact]}>
+        <View style={[s.brand, compact && s.brandCompact]}>
+          <Image source={BRAND} style={[s.brandLogo, compact && s.brandLogoCompact]} accessibilityLabel="Humaeli - Talk. Connect. Feel Supported." />
+          {has(data.clinic) && <Text translate={false} style={s.brandClinic}>{data.clinic}</Text>}
         </View>
-        {(clinicLines.length > 0 || !!contactLine) && (
-          <View style={s.clinicStrip}>
-            {clinicLines.map((line, i) => <Text key={i} translate={false} style={[s.clinicLine, i === 0 && s.clinicName]}>{line}</Text>)}
-            {!!contactLine && <Text translate={false} style={s.clinicContact}>{contactLine}</Text>}
+        <View style={[s.issuer, compact && s.issuerCompact]}>
+          <Text style={s.issuerLabel}>CONSULTING DOCTOR</Text>
+          <Text translate={false} style={[s.issuerName, compact && s.issuerNameCompact]}>{data.doctor}</Text>
+          {has(data.qualification) && <Text translate={false} style={s.qualification}>{data.qualification}</Text>}
+          {has(data.specialization) && <Text translate={false} style={s.specialization}>{data.specialization}</Text>}
+          {has(data.registration) && (
+            <View style={s.regChip}>
+              <MaterialCommunityIcons name="stethoscope" size={11} color="#32645E" />
+              <Text translate={false} style={s.regText}>Reg. No.: {data.registration}</Text>
+            </View>
+          )}
+        </View>
+        {!!bookingQr && (
+          <View style={[s.qr, compact && s.qrCompact]}>
+            <Image source={{ uri: bookingQr }} style={[s.qrImage, compact && s.qrImageCompact]} accessibilityLabel="Doctor appointment booking QR" />
+            <Text style={s.qrText}>Scan to book{'\n'}an appointment</Text>
           </View>
+        )}
+      </LinearGradient>
+
+      {/* Patient and visit details */}
+      <View style={s.patient}>
+        <PatientRow first cells={[['Patient name', data.patient], ['Date', data.date]]} />
+        <PatientRow cells={[['Age / Gender', ageGender], ['OPD / Token No.', data.opd]]} />
+        <PatientRow cells={[['Weight', weight], ['Prescription No.', data.prescriptionId]]} />
+        <PatientRow cells={[['Contact No.', data.phone]]} />
+      </View>
+
+      <Text style={s.title}>CONSULTATION PRESCRIPTION</Text>
+
+      <View style={s.clinical}>
+        <Text translate={false} style={[s.clinicalText, s.clinicalIssue]}>
+          <Text style={s.bold}>Consultation for: </Text>{data.issue || '—'}
+        </Text>
+        <Text translate={false} style={[s.clinicalText, s.clinicalDiagnosis, s.clinicalSecond]}>
+          <Text style={s.bold}>Diagnosis: </Text>{data.diagnosis || '—'}
+        </Text>
+      </View>
+
+      {/* Medicines */}
+      <View style={s.section}>
+        <Text style={s.sectionHead}>Prescribed Medicines</Text>
+        {/* The PDF's table: S. No., name, dosage, duration, instructions. */}
+        {medicines.length ? (
+          <View style={s.table}>
+            <View style={[s.tr, s.thRow]}>
+              {COLUMNS.map(([label, width], index) => (
+                <Text key={label} style={[s.cell, s.th, { width: `${width}%` }, index === COLUMNS.length - 1 && s.lastCell]}>{label}</Text>
+              ))}
+            </View>
+            {medicines.map((m, row) => {
+              const values = [
+                String(row + 1),
+                m.name || m.medicine || '-',
+                m.dosage || '-',
+                medicineDuration(m) || '-',
+                [medicineTiming(m), m.instructions].filter(Boolean).join(' / ') || '-',
+              ];
+              return (
+                <View key={row} style={[s.tr, row < medicines.length - 1 && s.trDivider]}>
+                  {values.map((value, index) => (
+                    <Text
+                      key={COLUMNS[index][0]}
+                      translate={false}
+                      style={[s.cell, s.td, { width: `${COLUMNS[index][1]}%` }, index === 1 && s.bold, index === values.length - 1 && s.lastCell]}
+                    >
+                      {value}
+                    </Text>
+                  ))}
+                </View>
+              );
+            })}
+          </View>
+        ) : (
+          <Text translate={false} style={s.noMedicines}>{data.medicine || 'No medicines prescribed.'}</Text>
         )}
       </View>
 
-      {/* Reference row */}
-      <View style={s.refRow}>
-        <RefChip label="Date" value={data.date} />
-        {hasValue(data.opd) && <RefChip label="Token" value={`#${data.opd}`} />}
-      </View>
-      {hasValue(data.prescriptionId) && (
-        <Text translate={false} style={s.rxNumber} numberOfLines={1} ellipsizeMode="middle">
-          Rx No. {shortRxNumber(data.prescriptionId)}
-        </Text>
-      )}
-
-      {/* Patient */}
-      <View style={s.patient}>
-        <Text style={s.eyebrow}>Patient</Text>
-        <Text translate={false} style={s.patientName}>{hasValue(data.patient) ? data.patient : '—'}</Text>
-        {/* Only details that were recorded — never a "None recorded" filler. */}
-        <View style={s.patientGrid}>
-          {hasValue(ageGender) && <PatientField label="Age / Gender" value={ageGender} />}
-          {hasValue(weight) && <PatientField label="Weight" value={weight} />}
-          {hasValue(data.phone) && <PatientField label="Contact" value={data.phone} />}
-          {hasValue(data.allergies) && !/^(none|not)\s*recorded$/i.test(String(data.allergies).trim()) && <PatientField label="Allergies" value={data.allergies} />}
-          {hasValue(data.patientId) && <PatientField label="Patient ID" value={data.patientId} full />}
-        </View>
-      </View>
-
-      {/* Rx */}
-      <View style={s.rxHead}>
-        <Text style={s.rxSymbol}>℞</Text>
-        <Text style={s.rxTitle}>Prescription</Text>
-        <View style={s.rxRule} />
-      </View>
-
-      {hasValue(data.issue) || hasValue(data.diagnosis) ? (
-        <View style={[s.clinical, wide && s.clinicalWide]}>
-          {hasValue(data.issue) && <ClinicalBox label="Consultation for" value={data.issue} />}
-          {hasValue(data.diagnosis) && <ClinicalBox label="Diagnosis" value={data.diagnosis} tone="indigo" />}
-        </View>
-      ) : null}
-
-      <SectionTitle title="Prescribed medicines" count={data.medicines.length} />
-      {data.medicines.length ? (
-        <View style={[s.medList, wide && s.medListWide]}>
-          {data.medicines.map((m, index) => (
-            <MedicineCard key={index} index={index} medicine={m} wide={wide} />
-          ))}
-        </View>
-      ) : (
-        <View style={s.emptyBox}>
-          <Text translate={false} style={s.emptyText}>{hasValue(data.medicine) ? data.medicine : 'No medicines prescribed.'}</Text>
-        </View>
-      )}
-
-      {data.tests.length > 0 && (
-        <>
-          <SectionTitle title="Recommended tests" count={data.tests.length} />
-          {data.tests.map((test, index) => (
-            <View key={index} style={s.testRow}>
-              <View style={s.testDot} />
-              <Text translate={false} style={s.testText}>
-                <Text translate={false} style={s.testName}>{test.testName || test.name}</Text>
-                {testLine(test)}
-              </Text>
+      {!!advice && (
+        <View style={[s.section, s.boxed]}>
+          <Text style={[s.sectionHead, s.headInBox, s.adviceHead]}>Advice & Instructions</Text>
+          {adviceLines.length > 1 ? (
+            <View style={s.boxBody}>
+              {adviceLines.map((line, index) => (
+                <View key={index} style={s.bulletRow}>
+                  <Text style={s.bullet}>{'•'}</Text>
+                  <Text translate={false} style={s.bodyText}>{line}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </>
-      )}
-
-      {(hasValue(data.advice) || (hasValue(data.notes) && data.notes !== data.advice)) && (
-        <View style={[s.notesRow, wide && s.clinicalWide]}>
-          {hasValue(data.advice) && <ClinicalBox label="Advice & instructions" value={data.advice} tone="amber" body />}
-          {hasValue(data.notes) && data.notes !== data.advice && <ClinicalBox label="Additional notes" value={data.notes} tone="slate" body />}
+          ) : (
+            <Text translate={false} style={[s.bodyText, s.boxBody]}>{advice}</Text>
+          )}
         </View>
       )}
 
-      {/* Follow-up (only when the doctor set one) + sign-off */}
-      <View style={[s.closing, wide && s.closingWide]}>
-        {hasFollowUp ? (
-          <View style={[s.followUp, s.followUpOn]}>
-            <Text style={[s.eyebrow, s.followUpLabelOn]}>Next follow-up</Text>
-            <Text translate={false} style={[s.followUpValue, s.followUpValueOn]}>{followUp}</Text>
+      {tests.length > 0 && (
+        <View style={[s.section, s.boxed]}>
+          <Text style={[s.sectionHead, s.headInBox, s.testsHead]}>Recommended tests</Text>
+          {tests.map((test, index) => (
+            <Text key={index} translate={false} style={[s.bodyText, s.boxBody, index > 0 && s.testDivider]}>
+              <Text style={s.bold}>{test.testName || test.name}</Text>{testLine(test)}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      {/* Follow-up and sign-off */}
+      <View style={s.footer}>
+        <View style={s.followUp}>
+          <MaterialCommunityIcons name="calendar-month-outline" size={20} color={TEAL} />
+          <View style={s.followUpText}>
+            <Text style={s.followUpLabel}>Next Follow-up:</Text>
+            <Text translate={false} style={s.followUpValue}>{followUp}</Text>
           </View>
-        ) : wide ? <View /> : null}
+        </View>
+        {/* Signature sits right above the doctor's name, centred on it. */}
         <View style={s.signoff}>
           <View style={s.signatureSpace}>
-            {!!data.signature && <Image source={{ uri: data.signature }} style={s.signature} accessibilityLabel="Doctor signature" />}
+            {!!data.signature && <Image source={{ uri: data.signature }} style={[s.signature, signatureSize]} accessibilityLabel="Doctor signature" />}
           </View>
-          <View style={s.signatureLine} />
           <Text translate={false} style={s.signName}>{data.doctor}</Text>
-          {hasValue(data.qualification) && <Text translate={false} style={s.signMeta}>{data.qualification}</Text>}
-          {hasValue(data.registration) && <Text translate={false} style={s.signMeta}>Reg. No.: {data.registration}</Text>}
-          <Text style={s.signCaption}>Issued by</Text>
+          {has(data.qualification) && <Text translate={false} style={s.signMeta}>{data.qualification}</Text>}
+          {has(data.registration) && <Text translate={false} style={s.signMeta}>Reg. No.: {data.registration}</Text>}
         </View>
       </View>
 
-      <View style={s.brandFooter}>
-        <Text style={s.footerCaption}>This prescription is provided by</Text>
-        <View style={s.footerBrandRow}>
-          <Image source={FOOTER_LOGO} style={s.footerLogo} accessible={false} />
-          <Text translate={false} style={s.footerBrand}>HUMAELI</Text>
-        </View>
-        <Text translate={false} style={s.footerCaption}>Talk. Connect. Feel Supported.</Text>
-      </View>
-    </View>
-  );
-}
-
-function RefChip({ label, value }) {
-  return (
-    <View style={s.refChip}>
-      <Text style={s.refLabel}>{label}</Text>
-      <Text translate={false} style={s.refValue}>{hasValue(value) ? value : '—'}</Text>
-    </View>
-  );
-}
-
-function PatientField({ label, value, full }) {
-  return (
-    <View style={[s.patientField, full && s.patientFieldFull]}>
-      <Text style={s.fieldLabel}>{label}</Text>
-      <Text translate={false} style={s.fieldValue}>{hasValue(value) ? value : '—'}</Text>
-    </View>
-  );
-}
-
-// `tone`: indigo (diagnosis), amber (advice), slate (notes); teal by default.
-// `body`: regular-weight paragraph text instead of a bold one-liner.
-function ClinicalBox({ label, value, tone, body }) {
-  return (
-    <View style={[s.clinicalBox, tone && s[`clinicalBox_${tone}`]]}>
-      <Text style={[s.fieldLabel, tone && s[`clinicalLabel_${tone}`]]}>{label}</Text>
-      <Text translate={false} style={[s.clinicalValue, body && s.clinicalBody]}>{value}</Text>
-    </View>
-  );
-}
-
-function SectionTitle({ title, count }) {
-  return (
-    <View style={s.sectionHead}>
-      <Text style={s.sectionTitle}>{title}</Text>
-      {count > 0 && <Text translate={false} style={s.sectionCount}>{count}</Text>}
-    </View>
-  );
-}
-
-function MedicineCard({ index, medicine: m, wide }) {
-  const details = [
-    ['Dosage', m.dosage],
-    ['Duration', medicineDuration(m)],
-    ['When', medicineTiming(m)],
-  ].filter(([, value]) => hasValue(value));
-  return (
-    <View style={[s.med, wide && s.medWide]}>
-      <View style={s.medTop}>
-        <View style={s.medIndex}><Text translate={false} style={s.medIndexText}>{index + 1}</Text></View>
-        <View style={s.flex}>
-          <Text translate={false} style={s.medName}>{m.name || m.medicine || '—'}</Text>
-          {hasValue(m.strength) && <Text translate={false} style={s.medStrength}>{m.strength}</Text>}
-        </View>
-      </View>
-      {details.length > 0 && (
-        <View style={s.medDetails}>
-          {details.map(([label, value]) => (
-            <View key={label} style={s.medDetail}>
-              <Text style={s.medDetailLabel}>{label}</Text>
-              <Text translate={false} style={s.medDetailValue}>{value}</Text>
-            </View>
-          ))}
+      {(has(data.address) || !!contact) && (
+        <View style={s.contactFooter}>
+          {has(data.address) && <Text translate={false} style={s.contactText}>{data.address}</Text>}
+          <Text translate={false} style={s.contactText}>{contact}</Text>
         </View>
       )}
-      {hasValue(m.instructions) && <Text translate={false} style={s.medNote}>{m.instructions}</Text>}
+
+      <View style={s.brandFooter}>
+        <Text style={s.brandFooterText}>This prescription is provided by</Text>
+        <View style={s.brandFooterMark}>
+          <Image source={LOGO_ICON} style={s.brandFooterLogo} accessible={false} />
+          <Text translate={false} style={s.brandFooterName}>HUMAELI</Text>
+        </View>
+        <Text style={s.brandFooterText}>Talk. Connect. Feel Supported.</Text>
+      </View>
+    </View>
+  );
+}
+
+// One row of the patient table: two label / value cells, or one wide cell.
+function PatientRow({ cells, first }) {
+  return (
+    <View style={[s.patientRow, first && s.patientRowFirst, !first && s.patientRowRule]}>
+      {cells.map(([label, value], index) => (
+        <View key={label} style={[s.patientCell, index > 0 && s.patientCellRule]}>
+          <Text style={s.patientLabel}>{label}</Text>
+          <Text translate={false} style={[s.patientValue, first && index === 0 && s.patientValueStrong]}>{has(value) ? value : '-'}</Text>
+        </View>
+      ))}
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  flex: { flex: 1 },
-  doc: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: LINE, borderRadius: 14, overflow: 'hidden', padding: 18 },
+  bold: { fontWeight: '700' },
+  doc: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D4D7DB', paddingVertical: 18, paddingHorizontal: 10, overflow: 'hidden' },
+  docBleed: { borderLeftWidth: 0, borderRightWidth: 0 },
+  watermarkWrap: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', paddingBottom: '10%' },
+  watermark: { width: '65%', maxWidth: 320, aspectRatio: 1, opacity: 0.055, resizeMode: 'contain' },
 
-  watermarkWrap: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
-  watermark: { width: 230, height: 230, opacity: 0.035, resizeMode: 'contain' },
+  header: {
+    flexDirection: 'row', alignItems: 'center', gap: 9, padding: 10,
+    borderWidth: 1, borderColor: '#CCE7E2', borderTopWidth: 5, borderTopColor: TEAL, borderBottomWidth: 3, borderBottomColor: TEAL,
+    borderTopLeftRadius: 12, borderTopRightRadius: 12, borderBottomLeftRadius: 2, borderBottomRightRadius: 2,
+  },
+  headerCompact: { gap: 6, padding: 8 },
+  brand: { width: 76, alignItems: 'center' },
+  brandCompact: { width: 58 },
+  brandLogo: { width: 72, height: 60, resizeMode: 'contain' },
+  brandLogoCompact: { width: 56, height: 46 },
+  brandClinic: { marginTop: 2, fontSize: 11, lineHeight: 15, fontWeight: '700', color: TEAL, textAlign: 'center' },
+  issuer: { flex: 1, minWidth: 0, paddingLeft: 10, borderLeftWidth: 1, borderLeftColor: '#CCE7E2' },
+  issuerCompact: { paddingLeft: 7 },
+  issuerLabel: { marginBottom: 4, fontSize: 8, fontWeight: '700', letterSpacing: 1, color: TEAL },
+  issuerName: { fontSize: 16, lineHeight: 20, fontWeight: '700', color: INK, letterSpacing: -0.3, marginBottom: 4 },
+  issuerNameCompact: { fontSize: 14, lineHeight: 18 },
+  qualification: { fontSize: 11, lineHeight: 15, fontWeight: '700', color: '#405F60', marginVertical: 2 },
+  specialization: { fontSize: 11, lineHeight: 15, color: TEAL, marginVertical: 2 },
+  regChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 6,
+    paddingHorizontal: 4, paddingVertical: 3, borderRadius: 5, backgroundColor: '#E7F4F1', borderWidth: 1, borderColor: '#CCE7E2',
+  },
+  regText: { fontSize: 9, color: '#32645E' },
+  qr: { width: 72, alignItems: 'center', gap: 3, padding: 4, borderRadius: 9, borderWidth: 1, borderColor: '#D9E9E5', backgroundColor: '#FFFFFF' },
+  qrCompact: { width: 60, padding: 3 },
+  qrImage: { width: 60, height: 60, borderWidth: 1, borderColor: '#E2E8F0' },
+  qrImageCompact: { width: 50, height: 50 },
+  qrText: { fontSize: 8, lineHeight: 11, fontWeight: '600', color: '#32645E', textAlign: 'center' },
 
-  letterhead: { paddingBottom: 14, borderBottomWidth: 2, borderBottomColor: '#A7D8D2' },
-  headTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  headTopWide: { gap: 24 },
-  logo: { width: 84, height: 84, resizeMode: 'contain' },
-  doctorBlock: { flex: 1 },
-  eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: MUTED },
-  doctorName: { fontSize: 19, fontWeight: '800', color: INK, marginTop: 2 },
-  doctorLine: { fontSize: 12.5, lineHeight: 18, color: '#334155', marginTop: 1 },
-  clinicStrip: { marginTop: 12, backgroundColor: '#F0FDFA', borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12 },
-  clinicLine: { fontSize: 12.5, lineHeight: 18, color: '#334155' },
-  clinicName: { fontSize: 13.5, fontWeight: '700', color: TEAL },
-  clinicContact: { fontSize: 12, lineHeight: 18, color: MUTED, marginTop: 2 },
+  patient: { marginVertical: 10, borderWidth: 1, borderColor: RULE, backgroundColor: '#FFFFFF' },
+  patientRow: { flexDirection: 'row' },
+  patientRowFirst: { backgroundColor: '#F0FDFA' },
+  patientRowRule: { borderTopWidth: 1, borderTopColor: RULE },
+  patientCell: { flex: 1, minWidth: 0, flexDirection: 'row', gap: 6, paddingVertical: 6, paddingHorizontal: 8 },
+  patientCellRule: { borderLeftWidth: 1, borderLeftColor: RULE },
+  patientLabel: { width: 64, fontSize: 11, lineHeight: 15, color: MUTED },
+  patientValue: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 15, fontWeight: '600', color: INK },
+  patientValueStrong: { fontWeight: '700' },
 
-  refRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  refChip: { flex: 1, borderWidth: 1, borderColor: LINE, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10 },
-  refLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', color: MUTED },
-  refValue: { fontSize: 14, fontWeight: '800', color: INK, marginTop: 2 },
-  rxNumber: { fontSize: 11, color: '#94A3B8', marginTop: 6 },
+  title: {
+    textAlign: 'center', marginBottom: 9, fontSize: 16, lineHeight: 22, fontWeight: '700', color: INK,
+    textDecorationLine: 'underline',
+  },
 
-  patient: { marginTop: 14, backgroundColor: '#F6F8F8', borderRadius: 12, padding: 14 },
-  patientName: { fontSize: 17, fontWeight: '800', color: INK, marginTop: 2 },
-  patientGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10, rowGap: 10 },
-  patientField: { width: '50%', paddingRight: 8 },
-  patientFieldFull: { width: '100%' },
-  fieldLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', color: MUTED },
-  fieldValue: { fontSize: 13.5, fontWeight: '700', color: '#243247', marginTop: 2 },
+  clinical: { flexDirection: 'row', marginBottom: 10, borderWidth: 1, borderColor: RULE },
+  clinicalText: { flex: 1, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8, fontSize: 12.5, lineHeight: 19, color: INK },
+  clinicalSecond: { borderLeftWidth: 1, borderLeftColor: RULE },
+  clinicalIssue: { backgroundColor: '#F0FDFA' },
+  clinicalDiagnosis: { backgroundColor: '#EEF2FF' },
 
-  rxHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 12 },
-  rxSymbol: { fontSize: 28, fontWeight: '700', color: TEAL, lineHeight: 32 },
-  rxTitle: { fontSize: 20, fontWeight: '800', color: INK },
-  rxRule: { flex: 1, height: 1, backgroundColor: LINE, marginLeft: 4 },
+  section: { marginBottom: 10 },
+  sectionHead: {
+    paddingVertical: 5, paddingHorizontal: 9, fontSize: 14, lineHeight: 20, fontWeight: '700', color: INK,
+    backgroundColor: '#F0FDFA', borderWidth: 1, borderColor: '#E2E8F0',
+  },
+  boxed: { borderWidth: 1, borderColor: RULE },
+  headInBox: { borderWidth: 0, borderBottomWidth: 1, borderBottomColor: RULE },
+  adviceHead: { backgroundColor: '#FFFBEB', color: '#B45309' },
+  testsHead: { backgroundColor: '#EEF2FF', color: '#6366F1' },
+  boxBody: { paddingVertical: 6, paddingHorizontal: 12 },
+  bodyText: { flexShrink: 1, fontSize: 13, lineHeight: 19, color: INK },
+  bulletRow: { flexDirection: 'row', gap: 8, paddingLeft: 6 },
+  bullet: { fontSize: 13, lineHeight: 19, color: INK },
+  testDivider: { borderTopWidth: 1, borderTopColor: '#E1DCE6' },
 
-  clinical: { gap: 8, marginBottom: 6 },
-  clinicalWide: { flexDirection: 'row' },
-  clinicalBox: { flex: 1, borderRadius: 10, padding: 11, backgroundColor: '#F0FDFA', borderLeftWidth: 3, borderLeftColor: '#14B8A6' },
-  clinicalBox_indigo: { backgroundColor: '#EEF2FF', borderLeftColor: '#6366F1' },
-  clinicalLabel_indigo: { color: '#4338CA' },
-  clinicalBox_amber: { backgroundColor: '#FFFBEB', borderLeftColor: '#F59E0B' },
-  clinicalLabel_amber: { color: '#B45309' },
-  clinicalBox_slate: { backgroundColor: '#F8FAFC', borderLeftColor: '#94A3B8' },
-  clinicalValue: { fontSize: 14, lineHeight: 20, fontWeight: '700', color: INK, marginTop: 3 },
-  clinicalBody: { fontSize: 13.5, lineHeight: 20, fontWeight: '400', color: '#334155' },
-  notesRow: { gap: 8, marginTop: 14 },
+  // The PDF's table: a dark teal header with white text, slate rules.
+  table: { borderWidth: 1, borderTopWidth: 0, borderColor: RULE },
+  tr: { flexDirection: 'row' },
+  trDivider: { borderBottomWidth: 1, borderBottomColor: RULE },
+  thRow: { backgroundColor: TEAL, borderBottomWidth: 1, borderBottomColor: RULE },
+  cell: { paddingVertical: 5, paddingHorizontal: 4, fontSize: 11, lineHeight: 15, borderRightWidth: 1, borderRightColor: RULE },
+  th: { color: '#FFFFFF', fontWeight: '700', fontSize: 10.5 },
+  td: { color: INK },
+  lastCell: { borderRightWidth: 0 },
+  noMedicines: { padding: 9, borderWidth: 1, borderTopWidth: 0, borderColor: '#E2E8F0', fontSize: 13, lineHeight: 20, color: INK },
 
-  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginBottom: 8 },
-  sectionTitle: { fontSize: 14.5, fontWeight: '800', color: INK },
-  sectionCount: { fontSize: 11, fontWeight: '800', color: '#FFF', backgroundColor: TEAL, minWidth: 20, textAlign: 'center', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, overflow: 'hidden' },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, minHeight: 84, paddingTop: 3, paddingBottom: 10 },
+  followUp: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', paddingTop: 8, maxWidth: '50%' },
+  followUpText: { flexShrink: 1, gap: 5 },
+  followUpLabel: { fontSize: 13, fontWeight: '700', color: INK },
+  followUpValue: { fontSize: 12, color: INK },
+  signoff: { maxWidth: '50%', alignItems: 'center' },
+  signatureSpace: { height: 46, justifyContent: 'flex-end', alignItems: 'center' },
+  signature: { resizeMode: 'contain' },
+  signName: { fontSize: 14, fontWeight: '700', color: TEAL, textAlign: 'center', marginTop: 1 },
+  signMeta: { fontSize: 11, lineHeight: 15, color: INK, textAlign: 'center' },
 
-  medList: { gap: 8 },
-  medListWide: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  med: { borderWidth: 1, borderColor: '#CDEDE8', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 12 },
-  medWide: { width: '49%' },
-  medTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  medIndex: { width: 24, height: 24, borderRadius: 12, backgroundColor: TEAL, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  medIndexText: { fontSize: 12, fontWeight: '800', color: '#FFF' },
-  medName: { fontSize: 15, fontWeight: '800', color: INK },
-  medStrength: { fontSize: 12.5, color: MUTED, marginTop: 1 },
-  medDetails: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10, marginLeft: 34 },
-  medDetail: { backgroundColor: '#F1F5F9', borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5 },
-  medDetailLabel: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: MUTED },
-  medDetailValue: { fontSize: 12.5, fontWeight: '700', color: '#243247', marginTop: 1 },
-  medNote: { fontSize: 12.5, lineHeight: 18, color: '#475569', marginTop: 8, marginLeft: 34, fontStyle: 'italic' },
-  emptyBox: { borderWidth: 1, borderColor: LINE, borderStyle: 'dashed', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 12 },
-  emptyText: { fontSize: 13.5, color: MUTED, textAlign: 'center' },
-
-  testRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginBottom: 6 },
-  testDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#14B8A6', marginTop: 7 },
-  testText: { flex: 1, fontSize: 13.5, lineHeight: 20, color: '#334155' },
-  testName: { fontWeight: '800', color: INK },
-
-  closing: { marginTop: 22, paddingTop: 16, borderTopWidth: 1, borderTopColor: LINE, gap: 16 },
-  closingWide: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  followUp: { borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, alignSelf: 'flex-start' },
-  followUpOn: { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
-  followUpOff: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: LINE },
-  followUpLabelOn: { color: '#92400E' },
-  followUpValue: { fontSize: 14, fontWeight: '700', color: '#475569', marginTop: 2 },
-  followUpValueOn: { fontSize: 15, fontWeight: '800', color: '#B45309' },
-  signoff: { alignSelf: 'flex-end', alignItems: 'flex-end', minWidth: 170 },
-  signatureSpace: { height: 54, width: 170, alignItems: 'flex-end', justifyContent: 'flex-end' },
-  signature: { width: '100%', height: '100%', resizeMode: 'contain' },
-  signatureLine: { alignSelf: 'stretch', height: 1, backgroundColor: '#94A3B8', marginTop: 4, marginBottom: 6 },
-  signName: { fontSize: 14.5, fontWeight: '800', color: INK },
-  signMeta: { fontSize: 11.5, color: MUTED, marginTop: 1, textAlign: 'right' },
-  signCaption: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: '#94A3B8', marginTop: 4 },
-
-  brandFooter: { marginTop: 22, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#CFE3E0', alignItems: 'center', gap: 6 },
-  footerCaption: { fontSize: 10, color: MUTED },
-  footerBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  footerLogo: { width: 26, height: 26, resizeMode: 'contain' },
-  footerBrand: { fontSize: 15, fontWeight: '800', letterSpacing: 1.5, color: INK },
+  contactFooter: { borderTopWidth: 1, borderTopColor: '#99DED5', paddingTop: 7, paddingBottom: 3, alignItems: 'center' },
+  contactText: { fontSize: 11, lineHeight: 16, color: TEAL, textAlign: 'center' },
+  brandFooter: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', columnGap: 9, rowGap: 2, paddingTop: 7 },
+  brandFooterText: { fontSize: 8, color: '#59616C' },
+  brandFooterMark: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  brandFooterLogo: { width: 16, height: 16, resizeMode: 'contain' },
+  brandFooterName: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: TEAL },
 });

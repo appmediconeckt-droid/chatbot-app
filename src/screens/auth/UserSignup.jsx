@@ -619,9 +619,9 @@ import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import {
-  getPhoneLengthLabel,
   isValidMobileNumber,
   normalizeLocalPhoneNumber,
+  phoneNumberError,
 } from '../../utils/countryCodes';
 import {
   calculateAgeFromDateOfBirth,
@@ -856,7 +856,7 @@ const UserSignup = ({ navigation, route }) => {
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone number is required";
     else if (!isValidMobileNumber(formData.phoneNumber, formData.phoneCountryCode)) {
-      newErrors.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
+      newErrors.phoneNumber = phoneNumberError(formData.phoneNumber, formData.phoneCountryCode);
     }
 
     const calculatedAge = calculateAgeFromDateOfBirth(formData.dateOfBirth);

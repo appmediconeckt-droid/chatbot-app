@@ -188,8 +188,7 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
     const matchesQuery =
       !query ||
       member.name.toLowerCase().includes(query) ||
-      member.email.toLowerCase().includes(query) ||
-      member.id.toLowerCase().includes(query);
+      member.email.toLowerCase().includes(query);
     return (
       matchesQuery &&
       (roleFilter === 'All' || member.role === roleFilter) &&
@@ -249,7 +248,7 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
             value={search}
             onChangeText={setSearch}
             style={s.searchInput}
-            placeholder="Search by name, ID or email..."
+            placeholder="Search by name or email..."
             placeholderTextColor="#818A9C"
           />
         </View>
@@ -352,7 +351,6 @@ function StaffCard({ member, onPress, onMore }) {
   const status = shownStatus(member);
   const tone = STATUS_TONES[status] || STATUS_TONES.Active;
   const initial = String(member.name || '?').trim().charAt(0).toUpperCase();
-  const subline = [member.id, member.email].filter(Boolean).join('  ·  ');
   return (
     // Press feedback is a tint, not an opacity fade (fading an elevated card
     // makes Android draw its shadow as a rectangle).
@@ -369,7 +367,7 @@ function StaffCard({ member, onPress, onMore }) {
         </View>
         <View style={s.identity}>
           <Text translate={false} style={s.name} numberOfLines={1}>{member.name}</Text>
-          {!!subline && <Text translate={false} style={s.subline} numberOfLines={1}>{subline}</Text>}
+          {!!member.email && <Text translate={false} style={s.subline} numberOfLines={1}>{member.email}</Text>}
         </View>
         <Pressable onPress={onMore} hitSlop={8} style={({ pressed }) => [s.moreButton, pressed && s.moreButtonPressed]}>
           <AppIcon name="more" size={16} color="#667085" />
@@ -387,7 +385,8 @@ function StaffCard({ member, onPress, onMore }) {
             <Text style={s.deptPillText} numberOfLines={1}>{member.department}</Text>
           </View>
         )}
-        {!!status && (
+        {/* No "Active" pill on the card; On Leave / Suspended still show. */}
+        {!!status && status !== 'Active' && (
           <View style={[s.statusPill, { backgroundColor: tone.bg }]}>
             <View style={[s.statusDot, { backgroundColor: tone.dot }]} />
             <Text style={[s.statusText, { color: tone.fg }]}>{status}</Text>
