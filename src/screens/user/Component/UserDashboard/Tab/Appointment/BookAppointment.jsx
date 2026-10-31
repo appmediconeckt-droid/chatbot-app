@@ -136,6 +136,21 @@ const resolveOnlineStatus = (person) => {
   return false;
 };
 
+// Same location fallback order as the web appointment directory.
+const getProfessionalLocation = (professional = {}) => {
+  if (typeof professional.location === 'string' && professional.location.trim()) {
+    return professional.location.trim();
+  }
+  if (professional.locationData?.current?.address) {
+    return String(professional.locationData.current.address).trim();
+  }
+
+  const address = professional.address || {};
+  return [address.line1, address.line2, address.city, address.state, address.country]
+    .filter(Boolean)
+    .join(', ');
+};
+
 const CounselorRequestChat = ({
   initialSearchQuery = '',
   initialOpenRequestName = '',
@@ -165,6 +180,9 @@ const CounselorRequestChat = ({
   const [selectedCounselorForRequest, setSelectedCounselorForRequest] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchLocation, setSearchLocation] = useState('');
+  const [showLocationSearch, setShowLocationSearch] = useState(false);
+  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   // 'consultant' | 'doctor' — the two-way switch at the top of the list.
   const [activeFilter, setActiveFilter] = useState('consultant');
   // The user's own coordinates, so "nearby" can mean an actual distance.
@@ -408,7 +426,7 @@ const CounselorRequestChat = ({
         profilePhoto: c.profilePhoto,
         email: c.email,
         phone: c.phoneNumber,
-        location: c.location,
+        location: getProfessionalLocation(c),
         languages: c.languages,
         consultationFee: c.consultationFee ?? c.fee ?? c.consultation_fee,
         // The currency the doctor charges in (set from their profile country).
@@ -1108,7 +1126,7 @@ const CounselorRequestChat = ({
 
   const filteredCounselors = counselorsWithDistance.filter((counselor) => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return true;
+    const locationQuery = searchLocation.trim().toLowerCase();
 
     const searchableText = [
       counselor.name,
@@ -1125,11 +1143,25 @@ const CounselorRequestChat = ({
       .join(' ')
       .toLowerCase();
 
-    return searchableText.includes(q);
+    const matchesSearch = !q || searchableText.includes(q);
+    const matchesLocation = !locationQuery
+      || String(counselor.location || '').toLowerCase().includes(locationQuery);
+    return matchesSearch && matchesLocation;
   });
 
-  // Consultants on the left, Doctors on the right — nothing else to filter by
-  // (status, specialty and the rest are still searchable).
+  const uniqueLocations = useMemo(() => (
+    [...new Set(counselors
+      .map((counselor) => String(counselor.location || '').trim())
+      .filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b))
+  ), [counselors]);
+
+  const matchingLocations = uniqueLocations.filter((location) => (
+    location.toLowerCase().includes(searchLocation.trim().toLowerCase())
+  ));
+
+  // Consultants on the left, Doctors on the right — status, specialty and
+  // location remain independent search filters, just like the web directory.
   const isDoctor = (c) => c.role === 'doctor';
   const segmentMatches = {
     consultant: filteredCounselors.filter((c) => !isDoctor(c)),
@@ -1144,13 +1176,16 @@ const CounselorRequestChat = ({
   // A search with no hit on this side but some on the other switches over, so
   // a name typed (or passed in) is never hidden behind the wrong side.
   useEffect(() => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim() && !searchLocation.trim()) return;
     if (!segmentMatches[activeFilter]?.length && segmentMatches[otherSegment].length) setActiveFilter(otherSegment);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, segmentMatches.consultant.length, segmentMatches.doctor.length]);
+  }, [searchQuery, searchLocation, segmentMatches.consultant.length, segmentMatches.doctor.length]);
 
-  // The empty-list button: clear the search on this side.
-  const clearFilters = () => setSearchQuery('');
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSearchLocation('');
+    setShowLocationDropdown(false);
+  };
 
   const chipFiltered = segmentMatches[activeFilter] || segmentMatches.consultant;
 
@@ -1187,7 +1222,95 @@ const CounselorRequestChat = ({
             <Ionicons name="close-circle" size={16} color={PATIENT.textMuted} />
           </TouchableOpacity>
         )}
+        <View style={styles.searchDivider} />
+        <TouchableOpacity
+          onPress={() => {
+            setShowLocationSearch((visible) => !visible);
+            setShowLocationDropdown(false);
+          }}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Filter by location"
+          style={[styles.locationToggleWrap, showLocationSearch && styles.locationToggleWrapActive]}
+        >
+          <LinearGradient
+            colors={['#006B2C', '#01CE54']}
+            start={GRADIENT_START}
+            end={GRADIENT_END}
+            style={styles.locationToggle}
+          >
+            <Ionicons name="location" size={15} color="#FFFFFF" />
+            <Text style={styles.locationToggleText}>Nearby</Text>
+          </LinearGradient>
+        </TouchableOpacity>
       </View>
+
+      {showLocationSearch ? (
+        <View style={styles.locationSearchSection}>
+          <View style={[styles.locationSearchContainer, showLocationDropdown && styles.locationSearchContainerFocused]}>
+            <Ionicons name="location-outline" size={18} color={PATIENT.primary} />
+            <TextInput
+              value={searchLocation}
+              onChangeText={(value) => {
+                setSearchLocation(value);
+                setShowLocationDropdown(true);
+              }}
+              onFocus={() => setShowLocationDropdown(true)}
+              placeholder="Search location..."
+              placeholderTextColor={PATIENT.textMuted}
+              style={styles.locationSearchInput}
+            />
+            {searchLocation.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchLocation('');
+                  setShowLocationDropdown(true);
+                }}
+                activeOpacity={0.7}
+                accessibilityLabel="Clear location"
+              >
+                <Ionicons name="close-circle" size={17} color={PATIENT.textMuted} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {showLocationDropdown && matchingLocations.length > 0 ? (
+            <ScrollView
+              style={styles.locationDropdown}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {matchingLocations.map((location, index) => (
+                <TouchableOpacity
+                  key={location}
+                  onPress={() => {
+                    setSearchLocation(location);
+                    setShowLocationDropdown(false);
+                    Keyboard.dismiss();
+                  }}
+                  activeOpacity={0.75}
+                  style={[styles.locationOption, index === matchingLocations.length - 1 && styles.locationOptionLast]}
+                >
+                  <Ionicons name="location" size={15} color={PATIENT.primary} />
+                  <Text style={styles.locationOptionText} numberOfLines={2}>{location}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : null}
+
+          {searchQuery.trim() || searchLocation.trim() ? (
+            <View style={styles.filterStats}>
+              <Text style={styles.filterStatsText}>
+                Found {sortedCounselors.length} {activeFilter === 'doctor' ? 'doctors' : 'consultants'}
+              </Text>
+              <TouchableOpacity onPress={clearFilters} activeOpacity={0.75}>
+                <Text style={styles.clearFiltersText}>Clear filters</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* Two-way switch: Consultants (left) | Doctors (right). */}
       <View style={styles.segmentWrap} accessibilityRole="tablist">
@@ -1298,13 +1421,13 @@ const CounselorRequestChat = ({
             <View style={styles.emptyContainer}>
               <Ionicons name={activeFilter === 'doctor' ? 'medkit-outline' : 'chatbubbles-outline'} size={26} color={PATIENT.textMuted} />
               <Text style={styles.emptyText}>
-                {searchQuery.trim()
-                  ? `No ${activeFilter === 'doctor' ? 'doctors' : 'consultants'} match your search.`
+                {searchQuery.trim() || searchLocation.trim()
+                  ? `No ${activeFilter === 'doctor' ? 'doctors' : 'consultants'} match your search or location.`
                   : `No ${activeFilter === 'doctor' ? 'doctors' : 'consultants'} available right now.`}
               </Text>
-              {searchQuery.trim() ? (
+              {searchQuery.trim() || searchLocation.trim() ? (
                 <TouchableOpacity onPress={clearFilters} activeOpacity={0.8} style={styles.emptyResetBtn}>
-                  <Text style={styles.emptyResetText}>Clear search</Text>
+                  <Text style={styles.emptyResetText}>Clear filters</Text>
                 </TouchableOpacity>
               ) : segmentMatches[otherSegment].length > 0 ? (
                 <TouchableOpacity onPress={() => setActiveFilter(otherSegment)} activeOpacity={0.8} style={styles.emptyResetBtn}>
@@ -1793,6 +1916,121 @@ const styles = {
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  searchDivider: {
+    width: 1,
+    height: 24,
+    marginLeft: 10,
+    marginRight: 8,
+    backgroundColor: '#E5EAF1',
+  },
+  locationToggleWrap: {
+    height: 32,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: '#006B2C',
+    shadowColor: '#006B2C',
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  locationToggleWrapActive: {
+    shadowOpacity: 0.3,
+    elevation: 4,
+  },
+  locationToggle: {
+    height: 32,
+    paddingHorizontal: 10,
+    backgroundColor: '#006B2C',
+    flexDirection: 'row',
+    gap: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locationToggleText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+    includeFontPadding: false,
+  },
+  locationSearchSection: {
+    marginHorizontal: 16,
+    marginTop: 8,
+  },
+  locationSearchContainer: {
+    height: 46,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: PATIENT.border,
+    backgroundColor: PATIENT.surface,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
+  },
+  locationSearchContainerFocused: {
+    borderColor: PATIENT.primary,
+  },
+  locationSearchInput: {
+    flex: 1,
+    paddingVertical: 0,
+    color: PATIENT.text,
+    fontSize: 14,
+  },
+  locationDropdown: {
+    maxHeight: 220,
+    marginTop: 5,
+    borderWidth: 1,
+    borderColor: '#DFE7F0',
+    borderRadius: 14,
+    backgroundColor: PATIENT.surface,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  locationOption: {
+    minHeight: 46,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  locationOptionLast: {
+    borderBottomWidth: 0,
+  },
+  locationOptionText: {
+    flex: 1,
+    color: PATIENT.text,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  filterStats: {
+    marginTop: 8,
+    paddingHorizontal: 4,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  filterStatsText: {
+    color: PATIENT.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  clearFiltersText: {
+    color: PATIENT.primary,
+    fontSize: 12,
+    fontWeight: '700',
   },
 
   // ─── Consultants | Doctors switch ─────────────────────────────────────────
