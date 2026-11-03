@@ -48,6 +48,7 @@ import {
   isAvailabilitySubscriptionUnsupported,
   setAvailabilitySubscription,
 } from '../../../../../../services/availabilitySubscriptions';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 // Same gradient and direction as the wallet balance card.
 const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
@@ -183,6 +184,12 @@ const CounselorRequestChat = ({
   const [searchLocation, setSearchLocation] = useState('');
   const [showLocationSearch, setShowLocationSearch] = useState(false);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  // Location suggestions close with the keyboard (Android back hides the
+  // keyboard without blurring the field).
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => setShowLocationDropdown(false));
+    return () => sub.remove();
+  }, []);
   // 'consultant' | 'doctor' — the two-way switch at the top of the list.
   const [activeFilter, setActiveFilter] = useState('consultant');
   // The user's own coordinates, so "nearby" can mean an actual distance.
@@ -672,7 +679,7 @@ const CounselorRequestChat = ({
     setShowBookingModal(true);
   };
 
-  const bookingDateLabel = bookingDateTime.toLocaleDateString('en-US', {
+  const bookingDateLabel = bookingDateTime.toLocaleDateString(displayLocale('en-US'), {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -1156,9 +1163,12 @@ const CounselorRequestChat = ({
       .sort((a, b) => a.localeCompare(b))
   ), [counselors]);
 
-  const matchingLocations = uniqueLocations.filter((location) => (
-    location.toLowerCase().includes(searchLocation.trim().toLowerCase())
-  ));
+  // Suggestions only for what is being typed: none for an empty field, and
+  // none once the field holds a location picked from the list.
+  const typedLocation = searchLocation.trim().toLowerCase();
+  const matchingLocations = !typedLocation || uniqueLocations.some((location) => location.toLowerCase() === typedLocation)
+    ? []
+    : uniqueLocations.filter((location) => location.toLowerCase().includes(typedLocation));
 
   // Consultants on the left, Doctors on the right — status, specialty and
   // location remain independent search filters, just like the web directory.
@@ -1256,6 +1266,7 @@ const CounselorRequestChat = ({
                 setShowLocationDropdown(true);
               }}
               onFocus={() => setShowLocationDropdown(true)}
+              onBlur={() => setShowLocationDropdown(false)}
               placeholder="Search location..."
               placeholderTextColor={PATIENT.textMuted}
               style={styles.locationSearchInput}

@@ -213,7 +213,7 @@ export default function DoctorSidebar({
                 <AppIcon name="globe" size={18} strokeWidth={1.8} color={colors.blue} />
               </View>
               <Text style={styles.itemText}>Language</Text>
-              <Text style={styles.languageValue} numberOfLines={1} translate={false}>{currentLanguageName}</Text>
+              <Text style={styles.languageValue} numberOfLines={1} translate="never">{currentLanguageName}</Text>
               <AppIcon name="chevron-right" size={16} strokeWidth={2} color="#98A2B3" />
             </LanguageSelector>
             <Pressable

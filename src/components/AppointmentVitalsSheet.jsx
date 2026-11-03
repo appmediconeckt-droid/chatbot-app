@@ -9,6 +9,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from './TranslatedText';
 import { getAppointmentVitals, hasVitalValue } from '../utils/appointmentVitals';
+import displayLocale from '../utils/displayLocale';
 
 const GREEN = '#00652C';
 const INK = '#1D2939';
@@ -31,8 +32,8 @@ const tightUnit = (unit) => /^[/°%]/.test(unit);
 const recordedLabel = (value) => {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return '';
-  return `${date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}, ${
-    date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+  return `${date.toLocaleDateString(displayLocale('en-IN'), { day: 'numeric', month: 'short', year: 'numeric' })}, ${
+    date.toLocaleTimeString(displayLocale('en-IN'), { hour: 'numeric', minute: '2-digit' })}`;
 };
 
 const roleLabel = (role) => {

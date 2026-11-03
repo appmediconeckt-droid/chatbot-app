@@ -23,6 +23,7 @@ import { bookedSlotKeys, bookingWindowDays } from '../../../../../../utils/docto
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { feeCurrencyOf, formatFee } from '../../../../../../utils/consultationCurrency';
 import { isOnlinePayment, isWalletPayment, methodRefused, paymentDisplayMethodsForBooking, paymentMethodGroups, paymentMethodsForBooking, payForAppointment, SLOT_RELEASED, useProviderPaymentOptions, useWalletBalance } from '../../../../../../utils/providerPayments';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -373,7 +374,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       day: WEEKDAYS[d.getDay()],
       label: `${MONTHS[d.getMonth()]} ${d.getDate()}`,
       month: MONTHS[d.getMonth()],
-      monthLong: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      monthLong: d.toLocaleDateString(displayLocale('en-US'), { month: 'long', year: 'numeric' }),
       iso,
       weekday: d.getDay(),
       status: buildSlots(iso, d.getDay()).length ? 'available' : 'unavailable',

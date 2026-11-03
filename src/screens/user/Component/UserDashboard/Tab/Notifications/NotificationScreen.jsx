@@ -48,7 +48,25 @@ const TYPE_CONFIG = {
 
 const HUMAELI_LOGO = require('../../../../../../image/HumaeliIcon.png');
 
-const configFor = (type) => TYPE_CONFIG[String(type || '').toLowerCase()] || TYPE_CONFIG.default;
+const configFor = (type, group) =>
+  TYPE_CONFIG[String(type || '').toLowerCase()] || TYPE_CONFIG[group] || TYPE_CONFIG.default;
+
+const pickId = (...values) => values.find((v) => v != null && String(v).trim()) ?? null;
+
+// The chip a notification belongs to. The server's type varies
+// ("appointment", "appointment_reminder", "appointment-confirmed", "booking",
+// "walk_in", ...), so — as on the doctor side — it is read from the type, the
+// data type, the link and the title, and any notification carrying an
+// appointment id is an appointment one.
+const groupOf = (n, rawType) => {
+  const data = n.data || n.metadata || n.meta || {};
+  const typeText = `${rawType} ${String(data.type || '').toLowerCase()}`;
+  if (/\b(chat|message)|new[\s_-]?message/.test(typeText)) return 'message';
+  const appointmentId = pickId(n.appointmentId, data.appointmentId, data.appointment_id, data.appointment?._id, data.appointment?.id);
+  const text = `${typeText} ${n.actionUrl || ''} ${n.link || data.link || ''} ${n.title || n.heading || ''}`.toLowerCase();
+  if (appointmentId || /appointment|booking|booked|reschedul|walk[\s_-]?in|follow[\s_-]?up|queue/.test(text)) return 'appointment';
+  return rawType;
+};
 
 // Normalize whatever shape the backend returns into a stable card model.
 const normalize = (n) => {
@@ -58,6 +76,7 @@ const normalize = (n) => {
   return {
     id: String(n._id || n.id || n.notificationId || Math.random()),
     type,
+    group: groupOf(n, rawType),
     title: n.title || n.heading || 'Notification',
     body: n.message || n.body || n.content || n.text || '',
     createdAt: n.createdAt || n.time || n.timestamp || new Date().toISOString(),
@@ -164,7 +183,7 @@ const NotificationScreen = ({ onClose, onAction }) => {
   const visible = useMemo(() => {
     if (filter === 'all') return items;
     if (filter === 'unread') return items.filter((n) => !n.read);
-    return items.filter((n) => n.type === filter);
+    return items.filter((n) => n.group === filter);
   }, [items, filter]);
 
   // ── Actions (optimistic, with server sync) ──
@@ -300,7 +319,7 @@ const NotificationScreen = ({ onClose, onAction }) => {
             </View>
           ) : (
             visible.map((n) => {
-              const cfg = configFor(n.type);
+              const cfg = configFor(n.type, n.group);
               return (
                 <TouchableOpacity
                   key={n.id}

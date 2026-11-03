@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import Text from '../TranslatedText';
+import { translatePhrase } from '../../hooks/useSmartT';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -278,9 +279,15 @@ export function ToastProvider({ children }) {
     Alert.alert = (title, message, buttons, options) => {
       const hasActionButtons = Array.isArray(buttons) && buttons.length > 1;
 
-      // Keep true confirmation dialogs native because they require actions.
+      // Keep true confirmation dialogs native because they require actions;
+      // their text goes through the app dictionary like every screen.
       if (hasActionButtons) {
-        return originalAlert(title, message, buttons, options);
+        return originalAlert(
+          translatePhrase(title),
+          translatePhrase(message),
+          buttons.map((button) => (button?.text ? { ...button, text: translatePhrase(button.text) } : button)),
+          options,
+        );
       }
 
       const titleText = typeof title === "string" ? title.trim() : "";

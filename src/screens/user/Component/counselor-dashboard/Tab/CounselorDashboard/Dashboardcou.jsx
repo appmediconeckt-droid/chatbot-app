@@ -18,7 +18,8 @@ import { isPatientAccountDeleted } from '../../../../../../utils/deletedAccount'
 import socketService from '../../../../../../services/socketService';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import LinearGradient from 'react-native-linear-gradient';
+import LinearGradient from 'react-native-linear-gradient';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 
 const Dashboard = () => {
@@ -129,7 +130,7 @@ const Dashboard = () => {
   const totalCount = appointments.length;
 
   const getFormattedDate = () =>
-    new Date().toLocaleDateString('en-IN', {
+    new Date().toLocaleDateString(displayLocale('en-IN'), {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -147,7 +148,7 @@ const Dashboard = () => {
     const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     if (isToday) return `Today, ${time}`;
     if (isTomorrow) return `Tomorrow, ${time}`;
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + `, ${time}`;
+    return d.toLocaleDateString(displayLocale('en-US'), { month: 'short', day: 'numeric' }) + `, ${time}`;
   };
   const getUserName = (apt) =>
     apt?.user?.fullName || apt?.user?.name || apt?.user?.anonymous ||

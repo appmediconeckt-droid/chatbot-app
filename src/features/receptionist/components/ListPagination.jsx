@@ -35,9 +35,8 @@ export default function ListPagination({ page, total, onPageChange, disabled = f
 
   return (
     <View style={s.container}>
-      <Text translate={false} style={s.summary}>
-        Showing <Text translate={false} style={s.summaryStrong}>{first}–{last}</Text> of <Text translate={false} style={s.summaryStrong}>{total}</Text>
-      </Text>
+      {/* One sentence, so other languages can order the numbers their own way. */}
+      <Text style={s.summary}>{`Showing ${first}–${last} of ${total}`}</Text>
       <View style={s.controls}>
         {arrow('back')}
         {numbers.map((number) => {

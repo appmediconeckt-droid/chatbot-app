@@ -24,6 +24,7 @@ import { pickStaffPhoto } from './pickStaffPhoto';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import { buildInternationalPhoneNumber, formatPhoneNumber, isValidMobileNumber, phoneNumberError } from '../../../../utils/countryCodes';
+import displayLocale from '../../../../utils/displayLocale';
 
 // Role `key`s are the backend role ids the web sends (docStaffRoleCards).
 const ROLES = [
@@ -73,7 +74,7 @@ const formatMDY = (isoDate) => {
 const formatLongDate = (isoDate) => {
   if (!isoDate) return '';
   const [year, month, day] = isoDate.split('-').map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return new Date(year, month - 1, day).toLocaleDateString(displayLocale('en-US'), { month: 'long', day: 'numeric', year: 'numeric' });
 };
 
 const generateEmployeeId = (roleKey) => {

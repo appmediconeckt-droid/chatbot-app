@@ -11,7 +11,8 @@ import TextInput from '../../../../components/TranslatedTextInput';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { useDoctorBack } from '../useDoctorBack';
-import { loadDoctorPatients } from '../api/doctorPatients';
+import { loadDoctorPatients } from '../api/doctorPatients';
+import displayLocale from '../../../../utils/displayLocale';
 
 const PAGE_SIZE = 10;
 const GENDERS = ['All', 'Male', 'Female', 'Other'];
@@ -42,7 +43,7 @@ const MENU_MAX_HEIGHT = 5.5 * MENU_ROW_HEIGHT; // half a row peeks out, hinting 
 const CHIP_BORDER = 1.5;
 const SCREEN_GUTTER = 12;
 
-const todayLabel = () => new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+const todayLabel = () => new Date().toLocaleDateString(displayLocale('en-US'), { day: '2-digit', month: 'short', year: 'numeric' });
 
 export default function PatientsScreen({ onPatientPress }) {
   const [patients, setPatients] = useState([]);

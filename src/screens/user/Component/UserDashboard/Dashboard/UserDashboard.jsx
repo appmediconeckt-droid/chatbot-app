@@ -79,7 +79,7 @@ import TokenStatusScreen from "../Tab/Token/TokenStatusScreen";
 import AppointmentVitalsSheet from "../../../../../components/AppointmentVitalsSheet";
 import { hasAppointmentVitals } from "../../../../../utils/appointmentVitals";
 import { toImageUri } from "../../../../../utils/imageUri";
-import { clearAccountLocalData } from "../../../../../utils/authSession";
+import { clearAccountLocalData, clearAllExceptDevicePreferences } from "../../../../../utils/authSession";
 import { isProfessionalAccountDeleted } from "../../../../../utils/deletedAccount";
 import AiMicButton from "../../../../../components/AiMicButton";
 import HumaeliAiButton, { HumaeliAiAvatar } from "./HumaeliAiButton";
@@ -89,6 +89,7 @@ import {
   getNotificationOnlyCallMessage,
   isNotificationOnlyCallResponse,
 } from "../../../../../utils/callRequestStatus";
+import displayLocale from '../../../../../utils/displayLocale';
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
@@ -183,6 +184,7 @@ const ChatPopup = ({
   userPhoto,
 }) => {
   const { t } = useLanguageRender();
+  const { i18n } = useTranslation();
   const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
   const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
@@ -391,8 +393,10 @@ const ChatPopup = ({
     };
   }, []);
 
+  const speakRequestRef = useRef(0);
   const stopSpeaking = useCallback(() => {
     const Speech = require('../../../../../utils/SpeechBridge');
+    speakRequestRef.current += 1;
     Speech.stopSpeaking().catch(() => {});
     setSpeakingId(null);
   }, []);
@@ -408,14 +412,33 @@ const ChatPopup = ({
     stopSpeaking();
     const Speech = require('../../../../../utils/SpeechBridge');
     setSpeakingId(messageId);
+    const requestId = speakRequestRef.current;
     try {
-      await Speech.speakText(cleanText, selectedLang);
+      // AI bubbles render through AutoTranslatedText, so speak that same
+      // translation (same language and cache) instead of the English source.
+      const displayLang = i18n.language || selectedLang || 'en-US';
+      let spokenText = cleanText;
+      if (displayLang !== 'en-US' && displayLang !== 'en') {
+        spokenText = (await translationService.translate(cleanText, displayLang, 'en-US').catch(() => null)) || cleanText;
+      }
+      // Stopped (or another message tapped) while translating.
+      if (speakRequestRef.current !== requestId) return;
+      await Speech.speakText(spokenText, displayLang);
     } catch (err) {
+      if (speakRequestRef.current !== requestId) return;
       console.warn('[TTS] error:', err?.message ?? err);
       setSpeakingId(null);
-      Alert.alert('Voice unavailable', err?.message || 'Unable to play this response. Please try again.');
+      const message = err?.message || 'Unable to play this response. Please try again.';
+      if (err?.code === 'TTS_LANGUAGE_UNAVAILABLE') {
+        Alert.alert('Voice unavailable', message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open settings', onPress: () => Speech.openTtsSettings().catch(() => {}) },
+        ]);
+      } else {
+        Alert.alert('Voice unavailable', message);
+      }
     }
-  }, [selectedLang, speakingId, stopSpeaking]);
+  }, [i18n, selectedLang, speakingId, stopSpeaking]);
 
   return (
   <Modal statusBarTranslucent navigationBarTranslucent
@@ -1725,9 +1748,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   // ---- Derived values for the details sheet ----
   const aptDate = Number.isFinite(Date.parse(selectedApt?.date)) ? new Date(selectedApt.date) : null;
   const isToday = aptDate ? aptDate.toDateString() === new Date().toDateString() : false;
-  const dayLabel = aptDate ? (isToday ? "Today" : aptDate.toLocaleDateString("en-US", { weekday: "short" })) : "";
+  const dayLabel = aptDate ? (isToday ? "Today" : aptDate.toLocaleDateString(displayLocale('en-US'), { weekday: "short" })) : "";
   const timeLabel = aptDate ? aptDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
-  const dateLabel = aptDate ? aptDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "-";
+  const dateLabel = aptDate ? aptDate.toLocaleDateString(displayLocale('en-US'), { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "-";
   const statusRaw = selectedApt?.status || "pending";
   const statusLower = String(statusRaw).toLowerCase();
   const statusCap = statusLower.charAt(0).toUpperCase() + statusLower.slice(1);
@@ -1951,7 +1974,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     <Text style={styles.aptInfoLabel}>{t('Date')}</Text>
                     <Text style={styles.appointmentDateText} numberOfLines={1}>
                       {aptDateObj
-                        ? aptDateObj.toLocaleDateString("en-US", {
+                        ? aptDateObj.toLocaleDateString(displayLocale('en-US'), {
                           weekday: "short",
                           month: "short",
                           day: "numeric",
@@ -3323,7 +3346,7 @@ export default function UserDashboard() {
 
   const handleLogout = async () => {
     // The logout request is a network round-trip; without this guard a second
-    // tap fires it again and can race the AsyncStorage.clear() below.
+    // tap fires it again and can race the sign-out wipe below.
     if (loggingOut) return;
     setLoggingOut(true);
     try {
@@ -3337,13 +3360,13 @@ export default function UserDashboard() {
       // Close this account's socket, as the doctor and staff logouts do: the
       // next account must not inherit it (its calls would be refused).
       try { socketService.disconnect(); } catch { /* ignore */ }
-      await AsyncStorage.clear();
+      await clearAllExceptDevicePreferences();
       setShowLogoutConfirm(false);
       resetToLoginScreen(navigation);
     } catch (error) {
       console.error("Logout error:", error);
       try { socketService.disconnect(); } catch { /* ignore */ }
-      await AsyncStorage.clear();
+      await clearAllExceptDevicePreferences();
       setShowLogoutConfirm(false);
       resetToLoginScreen(navigation);
     } finally {
@@ -4066,9 +4089,11 @@ export default function UserDashboard() {
           onClose={() => setShowNotifications(false)}
           onAction={(n) => {
             setShowNotifications(false);
-            if (n.type === 'appointment') switchDashboardTab('Appointment');
-            else if (n.type === 'message' || n.type === 'chat') switchDashboardTab('Chat');
-            else if (n.type === 'payment' || n.type === 'wallet') switchDashboardTab('Wallet');
+            // n.group: the chip the card sits under (any appointment
+            // notification, whatever its exact type); payments open Wallet.
+            if (n.type === 'payment' || n.type === 'wallet') switchDashboardTab('Wallet');
+            else if (n.group === 'appointment') switchDashboardTab('Appointment');
+            else if (n.group === 'message') switchDashboardTab('Chat');
           }}
         />
       </Modal>
@@ -4294,7 +4319,7 @@ export default function UserDashboard() {
                   }
                 }}
               >
-                <Text>{directBookDateTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</Text>
+                <Text>{directBookDateTime.toLocaleDateString(displayLocale('en-US'), { month: 'short', day: 'numeric', year: 'numeric' })}</Text>
               </TouchableOpacity>
 
               <Text style={styles.directBookingLabel}>Time</Text>

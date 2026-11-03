@@ -8,7 +8,7 @@ const TranslatedTextInput = forwardRef(({
   maxFontSizeMultiplier = 1.2,
   ...props
 }, ref) => {
-  const { t, language } = useSmartT();
+  const { t, language, liveVersion } = useSmartT();
 
   const translatedPlaceholder = useMemo(() => {
     if (!translatePlaceholder || typeof placeholder !== 'string' || !/[A-Za-z]/.test(placeholder)) {
@@ -16,7 +16,7 @@ const TranslatedTextInput = forwardRef(({
     }
 
     return t(placeholder, placeholder);
-  }, [language, placeholder, t, translatePlaceholder]);
+  }, [language, liveVersion, placeholder, t, translatePlaceholder]);
 
   return (
     <RNTextInput

@@ -4,7 +4,8 @@ import { formatPhoneNumber } from '../../../utils/countryCodes';
 // security (POST /api/auth/changePassword, then sign in again). Logout is in
 // the side menu.
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import TextInput from '../../../components/TranslatedTextInput';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../components/TranslatedText';
 import { AlertBox, Card, DetailFields, Notice, NoticeText, REC, RecButton } from '../receptionistUi';

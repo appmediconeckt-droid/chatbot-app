@@ -24,6 +24,7 @@ import {
   loadDoctorAppointmentFeed,
   pickFirst,
 } from '../api/doctorAppointments';
+import displayLocale from '../../../../utils/displayLocale';
 
 const STATUS_META = {
   Pending: { color: '#64748B', bg: '#F1F5F9' },
@@ -118,7 +119,7 @@ const shiftDateKey = (key, days) => {
 };
 
 const formatDateLabel = (key) =>
-  new Date(`${key}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  new Date(`${key}T00:00:00`).toLocaleDateString(displayLocale('en-US'), { month: 'short', day: '2-digit', year: 'numeric' });
 
 const percent = (part, total) => `${total ? Math.round((part / total) * 100) : 0}% of total`;
 

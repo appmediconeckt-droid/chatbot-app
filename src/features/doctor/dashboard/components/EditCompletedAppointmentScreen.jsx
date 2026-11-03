@@ -17,18 +17,19 @@ import { formatDuration } from './ActiveConsultationCard';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 import useKeyboardLift from '../../../../hooks/useKeyboardLift';
 import { getDoctorMedicines, getDoctorTests } from '../../../../utils/consultationDetails';
+import displayLocale from '../../../../utils/displayLocale';
 
 const has = (value) => value != null && String(value).trim() !== '' && !/^(n\/?a|not recorded|none|—)$/i.test(String(value).trim());
 
 const formatDateTime = (value) => {
   const d = new Date(Number(value) || value);
   if (Number.isNaN(d.getTime())) return '';
-  return `${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+  return `${d.toLocaleDateString(displayLocale('en-IN'), { day: '2-digit', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString(displayLocale('en-IN'), { hour: 'numeric', minute: '2-digit' })}`;
 };
 
 const formatDay = (key) => {
   const d = new Date(`${key}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? key : d.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  return Number.isNaN(d.getTime()) ? key : d.toLocaleDateString(displayLocale('en-IN'), { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
 };
 
 const TIMINGS = ['Morning', 'Afternoon', 'Evening', 'Night'];

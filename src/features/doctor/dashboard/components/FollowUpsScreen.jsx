@@ -24,7 +24,8 @@ import {
   loadFollowUpsForDoctor,
   normalizeDateInput,
   updateFollowUp,
-} from '../api/doctorFollowUps';
+} from '../api/doctorFollowUps';
+import displayLocale from '../../../../utils/displayLocale';
 
 // One palette for the whole screen: teal brand + semantic status colors.
 const STATUS_META = {
@@ -39,7 +40,8 @@ const TYPE_META = {
   consultation: { label: 'Consultation', fg: '#6D28D9', bg: '#EDE9FE' },
 };
 const STATUS_LABEL = { scheduled: 'Scheduled', pending: 'Pending', completed: 'Completed' };
-const TYPE_LABEL = { routine: 'Routine', urgent: 'Urgent', consultation: 'Consultation' };
+// Actions sheet rows, written out whole so the phrase dictionary has them.
+const STATUS_ACTION = { pending: 'Mark pending', scheduled: 'Mark scheduled', completed: 'Mark completed' };
 const STATUS_FILTERS = [['all', 'All'], ['pending', 'Pending'], ['scheduled', 'Scheduled'], ['completed', 'Completed']];
 const TYPE_FILTERS = [['all', 'All Types'], ['routine', 'Routine'], ['urgent', 'Urgent'], ['consultation', 'Consultation']];
 
@@ -63,7 +65,7 @@ const toCard = (fu) => {
     initial: getInitials(fu.name),
     name: fu.name,
     subline: [fu.age !== 'N/A' ? `${fu.age} yrs` : null, fu.gender, fu.phone !== 'N/A' ? fu.phone : null].filter(Boolean).join(' • ') || 'No contact details',
-    date: d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date not set',
+    date: d ? d.toLocaleDateString(displayLocale('en-US'), { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date not set',
     isToday: key === todayKey && fu.followUpStatus !== 'completed',
     time: formatTime(fu.followUpTime),
     notes: fu.notes && fu.notes !== 'N/A' ? fu.notes : '',
@@ -95,6 +97,8 @@ export default function FollowUpsScreen({ onBack }) {
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The follow-up whose ⋮ actions sheet is open.
+  const [actionFor, setActionFor] = useState(null);
 
   useEffect(() => { getCurrentDoctor().then(setDoctor); }, []);
 
@@ -164,14 +168,12 @@ export default function FollowUpsScreen({ onBack }) {
     ]);
   };
 
-  const openMore = (followUp) => {
-    const options = STATUS_FILTERS
-      .filter(([value]) => value !== 'all' && value !== followUp.followUpStatus)
-      .map(([value, label]) => ({ text: `Mark ${label}`, onPress: () => handleStatusChange(followUp, value) }));
-    options.push({ text: 'Edit', onPress: () => setEditing(followUp) });
-    options.push({ text: 'Delete', style: 'destructive', onPress: () => handleDelete(followUp) });
-    options.push({ text: 'Close', style: 'cancel' });
-    Alert.alert(followUp.name, `${STATUS_LABEL[followUp.followUpStatus]} • ${TYPE_LABEL[followUp.followUpType]}`, options);
+  const openMore = (followUp) => setActionFor(followUp);
+  // Runs a sheet action after the sheet has closed.
+  const fromSheet = (action) => () => {
+    const followUp = actionFor;
+    setActionFor(null);
+    if (followUp) action(followUp);
   };
 
   if (creating || editing) {
@@ -251,7 +253,7 @@ export default function FollowUpsScreen({ onBack }) {
           <View style={s.heroStats}>
             <HeroStat label="Due today" value={dueToday} onPress={() => setFilterStatus('all')} />
             <HeroStat label="Pending" value={pendingCount} onPress={() => setFilterStatus('pending')} />
-            <HeroStat label="Overdue" value={overdueCount} alert={overdueCount > 0} onPress={() => setFilterStatus('all')} />
+            <HeroStat label="Overdue" value={overdueCount} onPress={() => setFilterStatus('all')} />
             <HeroStat label="Completed" value={completedCount} onPress={() => setFilterStatus('completed')} />
           </View>
         </LinearGradient>
@@ -326,6 +328,73 @@ export default function FollowUpsScreen({ onBack }) {
         </LinearGradient>
       </Pressable>
 
+      {/* ⋮ actions: change status, edit, delete */}
+      <Modal visible={Boolean(actionFor)} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setActionFor(null)}>
+        <Pressable style={s.sheetOverlay} onPress={() => setActionFor(null)}>
+          {!!actionFor && (() => {
+            const card = toCard(actionFor);
+            return (
+              <Pressable style={[s.sheet, { paddingBottom: 18 + insets.bottom }]} onPress={() => {}}>
+                <View style={s.sheetHandle} />
+                <View style={s.actionHead}>
+                  <View style={[s.avatar, { backgroundColor: card.statusMeta.bg }]}>
+                    <Text translate={false} style={[s.avatarText, { color: card.statusMeta.fg }]}>{card.initial}</Text>
+                  </View>
+                  <View style={s.flex}>
+                    <Text translate={false} style={s.name} numberOfLines={1}>{card.name}</Text>
+                    <View style={s.actionChips}>
+                      <View style={[s.actionChip, { backgroundColor: card.statusMeta.bg }]}>
+                        <Text style={[s.actionChipText, { color: card.statusMeta.fg }]}>{card.overdue ? 'Overdue' : card.statusMeta.label}</Text>
+                      </View>
+                      {!!card.typeMeta && (
+                        <View style={[s.actionChip, { backgroundColor: card.typeMeta.bg }]}>
+                          <Text style={[s.actionChipText, { color: card.typeMeta.fg }]}>{card.typeMeta.label}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </View>
+
+                <Text style={s.actionSection}>Change status</Text>
+                {STATUS_FILTERS
+                  .filter(([value]) => value !== 'all' && value !== actionFor.followUpStatus)
+                  .map(([value]) => {
+                    const meta = STATUS_META[value];
+                    return (
+                      <Pressable key={value} disabled={busy} style={({ pressed }) => [s.actionRow, pressed && s.actionRowPressed]} onPress={fromSheet((fu) => handleStatusChange(fu, value))}>
+                        <View style={[s.actionIcon, { backgroundColor: meta.bg }]}>
+                          <AppIcon name={meta.icon} size={17} color={meta.fg} strokeWidth={2.2} />
+                        </View>
+                        <Text style={s.actionText}>{STATUS_ACTION[value]}</Text>
+                        <AppIcon name="chevron-right" size={16} color="#98A2B3" />
+                      </Pressable>
+                    );
+                  })}
+
+                <View style={s.actionDivider} />
+                <Pressable style={({ pressed }) => [s.actionRow, pressed && s.actionRowPressed]} onPress={fromSheet((fu) => setEditing(fu))}>
+                  <View style={[s.actionIcon, s.actionIconEdit]}>
+                    <AppIcon name="edit" size={17} color="#0D9488" strokeWidth={2.2} />
+                  </View>
+                  <Text style={s.actionText}>Edit follow-up</Text>
+                  <AppIcon name="chevron-right" size={16} color="#98A2B3" />
+                </Pressable>
+                <Pressable style={({ pressed }) => [s.actionRow, pressed && s.actionRowPressed]} onPress={fromSheet(handleDelete)}>
+                  <View style={[s.actionIcon, s.actionIconDanger]}>
+                    <AppIcon name="trash" size={17} color="#DC2626" strokeWidth={2.2} />
+                  </View>
+                  <Text style={[s.actionText, s.actionTextDanger]}>Delete follow-up</Text>
+                </Pressable>
+
+                <Pressable style={({ pressed }) => [s.actionClose, pressed && s.pressed]} onPress={() => setActionFor(null)}>
+                  <Text style={s.actionCloseText}>Close</Text>
+                </Pressable>
+              </Pressable>
+            );
+          })()}
+        </Pressable>
+      </Modal>
+
       {/* Options sheet for the Status / Type dropdowns */}
       <Modal visible={openFilter !== null} transparent animationType="fade" onRequestClose={() => setOpenFilter(null)}>
         <Pressable style={s.sheetOverlay} onPress={() => setOpenFilter(null)}>
@@ -376,9 +445,9 @@ function FilterDropdown({ label, value, dotColor, active, onPress }) {
   );
 }
 
-function HeroStat({ label, value, onPress, alert }) {
+function HeroStat({ label, value, onPress }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [s.heroStat, alert && s.heroStatAlert, pressed && s.pressed]}>
+    <Pressable onPress={onPress} style={({ pressed }) => [s.heroStat, pressed && s.pressed]}>
       <Text translate={false} style={s.heroStatValue}>{value}</Text>
       <Text style={s.heroStatLabel} numberOfLines={1}>{label}</Text>
     </Pressable>
@@ -464,7 +533,6 @@ const s = createDoctorStyles({
   heroIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   heroStats: { flexDirection: 'row', gap: 8, marginTop: 14 },
   heroStat: { flex: 1, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 14, paddingVertical: 10, alignItems: 'center' },
-  heroStatAlert: { backgroundColor: 'rgba(239,68,68,0.35)' },
   heroStatValue: { fontSize: 19, fontWeight: '800', color: '#FFF' },
   heroStatLabel: { fontSize: 10.5, fontWeight: '600', color: 'rgba(255,255,255,0.9)', marginTop: 2 },
 
@@ -489,6 +557,21 @@ const s = createDoctorStyles({
   sheetDot: { width: 10, height: 10, borderRadius: 5 },
   sheetOptionText: { flex: 1, fontSize: 15, fontWeight: '600', color: '#26364D' },
   sheetOptionTextActive: { fontWeight: '800', color: '#0D9488' },
+  actionHead: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 14, marginBottom: 6, borderBottomWidth: 1, borderBottomColor: '#EEF3F2' },
+  actionChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 },
+  actionChip: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  actionChipText: { fontSize: 11.5, fontWeight: '800' },
+  actionSection: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6, color: '#98A2B3', textTransform: 'uppercase', marginTop: 10, marginBottom: 4 },
+  actionRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 6, borderRadius: 12 },
+  actionRowPressed: { backgroundColor: '#F4F7F9' },
+  actionIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  actionIconEdit: { backgroundColor: '#F0FDFA' },
+  actionIconDanger: { backgroundColor: '#FEF2F2' },
+  actionText: { flex: 1, fontSize: 15, fontWeight: '700', color: '#26364D' },
+  actionTextDanger: { color: '#DC2626' },
+  actionDivider: { height: 1, backgroundColor: '#EEF3F2', marginVertical: 8 },
+  actionClose: { height: 48, borderRadius: 14, backgroundColor: '#F2F4F7', alignItems: 'center', justifyContent: 'center', marginTop: 12 },
+  actionCloseText: { fontSize: 15, fontWeight: '800', color: '#344054' },
   sheetCount: { fontSize: 13, fontWeight: '800', color: '#0F766E', backgroundColor: '#F0FDFA', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, overflow: 'hidden' },
 
   listHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 },

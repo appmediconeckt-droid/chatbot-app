@@ -43,8 +43,15 @@ export const saveDoctorFeeCurrency = async (user, country) => {
   if (!userId || !accessToken) throw new Error('Your session is incomplete. Please sign in again.');
 
   const formData = new FormData();
-  // `address` replaces the whole saved address, so the rest is sent back unchanged.
-  formData.append('address', JSON.stringify({ ...(user?.address || {}), country }));
+  // `address` replaces the whole saved address, so the rest is sent back
+  // unchanged — except the state and city, which belong to the old country.
+  const address = { ...(user?.address || {}), country };
+  const savedCountry = findCountry(user?.address?.country)?.name || DEFAULT_COUNTRY;
+  if (savedCountry !== (findCountry(country)?.name || country)) {
+    address.state = '';
+    address.city = '';
+  }
+  formData.append('address', JSON.stringify(address));
   formData.append('consultationCurrency', currency);
   // Sent as a pair, as Edit Profile did; the saved fee goes back unchanged.
   const savedFee = Number(user?.consultationFee);

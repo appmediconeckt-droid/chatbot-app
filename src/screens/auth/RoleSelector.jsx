@@ -19,7 +19,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { PATIENT, DOCTOR, CLINICIAN } from '../../theme/palette';
+import { BRAND, PATIENT, DOCTOR, CLINICIAN } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
 import logo from '../../image/HumaeliIcon.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
@@ -217,8 +217,9 @@ const RoleSelector = () => {
               />
             </View>
 
-            <Text style={styles.brandTitle}>{t('Create Your Account')}</Text>
-            <Text style={styles.tagline}>{t('Choose how you want to use Humaeli')}</Text>
+            {/* Brand name, as on Login: never translated. */}
+            <Text translate="never" style={styles.brandTitle}>Humaeli</Text>
+            <Text style={styles.tagline}>{t('Create Your Account')}</Text>
 
             <View style={styles.portalRow}>
               <View style={styles.portalRule} />
@@ -441,16 +442,22 @@ const styles = StyleSheet.create({
   // Both copied from Login's title/subtitle so the two headers read as one
   // design. Fixed sizes on purpose - the responsive R.brand/R.tagline values
   // are what made this header look different from Login's.
+  // Same brand name and subtitle as the Login card.
   brandTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: '800',
+    color: BRAND.primary,
+    marginBottom: 4,
+    letterSpacing: 0.2,
+    includeFontPadding: false,
   },
   tagline: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#5b6472',
     textAlign: 'center',
+    lineHeight: 19,
   },
   portalRow: {
     flexDirection: 'row',

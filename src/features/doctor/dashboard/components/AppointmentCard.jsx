@@ -19,6 +19,7 @@ import {
   getRemoteConsultationMode,
   getTokenLabel,
 } from '../api/doctorAppointments';
+import displayLocale from '../../../../utils/displayLocale';
 
 // Mode badge colours — one per way of consulting, so the queue reads at a glance.
 export const MODE_STYLES = {
@@ -34,7 +35,7 @@ const formatFollowUpDate = (value) => {
   const d = new Date(value);
   return Number.isNaN(d.getTime())
     ? 'Date not available'
-    : d.toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' });
+    : d.toLocaleDateString(displayLocale('en-US'), { day: '2-digit', month: 'long', year: 'numeric' });
 };
 
 export default function AppointmentCard({

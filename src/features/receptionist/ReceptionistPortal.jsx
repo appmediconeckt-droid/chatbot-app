@@ -307,7 +307,7 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
                   <Ionicons name="globe-outline" size={17} color={REC.primary} />
                 </View>
                 <Text style={s.navText}>Language</Text>
-                <Text translate={false} style={s.languageValue} numberOfLines={1}>{currentLanguageName}</Text>
+                <Text translate="never" style={s.languageValue} numberOfLines={1}>{currentLanguageName}</Text>
                 <Ionicons name="chevron-forward" size={15} color="#98A2B3" />
               </LanguageSelector>
               <View style={s.accessNote}>

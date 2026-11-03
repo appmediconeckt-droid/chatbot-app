@@ -34,6 +34,7 @@ import { getCounselorRating } from '../../../../../../services/ratingService';
 import useLiveCounselorRating from '../../../../../../hooks/useLiveCounselorRating';
 import { isPsychiatristSpecialization } from '../../../../../../components/common/PsychiatristDirectory';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
+import CountryStateSelect from '../../../../../../components/common/CountryStateSelect';
 import { useToast } from '../../../../../../components/common/ToastProvider';
 import { DOCTOR } from '../../../../../../theme/palette';
 import toImageUri from '../../../../../../utils/imageUri';
@@ -50,6 +51,7 @@ import {
   getDatePickerValue,
   toDateOnlyString,
 } from '../../../../../../utils/dateOfBirth';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 
 
@@ -1410,7 +1412,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
   const formatDate = (dateString) => {
     if (!dateString) return t('profile:notSpecified');
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return new Date(dateString).toLocaleDateString(displayLocale('en-US'), {
       year: 'numeric', month: 'long', day: 'numeric'
     });
   };
@@ -1806,12 +1808,54 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
                     <TextInput style={styles.input} value={editedData.address?.line1 || ''} onChangeText={(v) => handleNestedInputChange('address', 'line1', v)} placeholder="Line 1" placeholderTextColor="#9CA3AF" />
                     <TextInput style={styles.input} value={editedData.address?.line2 || ''} onChangeText={(v) => handleNestedInputChange('address', 'line2', v)} placeholder="Line 2" placeholderTextColor="#9CA3AF" />
                     <View style={styles.dateRow}>
-                      <TextInput style={[styles.input, styles.flexInput]} value={editedData.address?.city || ''} onChangeText={(v) => handleNestedInputChange('address', 'city', v)} placeholder="City" placeholderTextColor="#9CA3AF" />
-                      <TextInput style={[styles.input, styles.flexInput]} value={editedData.address?.state || ''} onChangeText={(v) => handleNestedInputChange('address', 'state', v)} placeholder="State" placeholderTextColor="#9CA3AF" />
+                      <View style={styles.flexInput}>
+                        <CountryStateSelect
+                          kind="country"
+                          style={styles.input}
+                          textStyle={styles.selectText}
+                          value={editedData.address?.country || ''}
+                          onChange={(country) => setEditedData((prev) => ({
+                            ...prev,
+                            address: { ...prev.address, country, state: '', city: '' },
+                          }))}
+                          placeholder="Country"
+                          placeholderTextColor="#9CA3AF"
+                          accentColor="#D97706"
+                        />
+                      </View>
+                      <View style={styles.flexInput}>
+                        <CountryStateSelect
+                          kind="state"
+                          style={styles.input}
+                          textStyle={styles.selectText}
+                          country={editedData.address?.country || ''}
+                          value={editedData.address?.state || ''}
+                          onChange={(state, fromList) => setEditedData((prev) => ({
+                            ...prev,
+                            address: { ...prev.address, state, city: fromList ? '' : prev.address?.city || '' },
+                          }))}
+                          placeholder="State"
+                          placeholderTextColor="#9CA3AF"
+                          accentColor="#D97706"
+                        />
+                      </View>
                     </View>
                     <View style={styles.dateRow}>
+                      <View style={styles.flexInput}>
+                        <CountryStateSelect
+                          kind="city"
+                          style={styles.input}
+                          textStyle={styles.selectText}
+                          country={editedData.address?.country || ''}
+                          state={editedData.address?.state || ''}
+                          value={editedData.address?.city || ''}
+                          onChange={(v) => handleNestedInputChange('address', 'city', v)}
+                          placeholder="City"
+                          placeholderTextColor="#9CA3AF"
+                          accentColor="#D97706"
+                        />
+                      </View>
                       <TextInput style={[styles.input, styles.flexInput]} value={editedData.address?.pincode || ''} onChangeText={(v) => handleNestedInputChange('address', 'pincode', v)} placeholder="Pincode" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
-                      <TextInput style={[styles.input, styles.flexInput]} value={editedData.address?.country || ''} onChangeText={(v) => handleNestedInputChange('address', 'country', v)} placeholder="Country" placeholderTextColor="#9CA3AF" />
                     </View>
                   </View>
                 ) : (
@@ -2936,6 +2980,10 @@ const makeResponsiveScreenStyles = (width) => StyleSheet.create({
     paddingVertical: 11,
     fontSize: 14,
     backgroundColor: '#FFFFFF',
+    color: '#1F2937',
+  },
+  selectText: {
+    fontSize: 14,
     color: '#1F2937',
   },
   readonlyInput: {

@@ -10,11 +10,12 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
 import { DEFAULT_SHIFT_TIMES, SHIFTS, isOnShiftNow, shiftInfo, shiftTimeLabel, updateStaff } from './staffApi';
+import displayLocale from '../../../../utils/displayLocale';
 
 const formatLongDate = (isoDate) => {
   if (!isoDate) return '—';
   const [year, month, day] = isoDate.split('-').map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return new Date(year, month - 1, day).toLocaleDateString(displayLocale('en-US'), { month: 'long', day: 'numeric', year: 'numeric' });
 };
 
 export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }) {

@@ -560,7 +560,7 @@ export default function ClinicPageScreen({ onBack }) {
 
         {activeTab === 'Overview' && (
           <Panel icon="business-outline" tone={TONES.teal} title="About Hospital">
-            <Text translate={false} style={s.body}>{clinic.about}</Text>
+            <Text translate="live" style={s.body}>{clinic.about}</Text>
             <View style={s.missionBox}>
               <Ionicons name="flag-outline" size={15} color="#0F766E" />
               <View style={s.flex}>
@@ -830,7 +830,7 @@ function DoctorDetailSheet({ doctor, clinicName, onClose }) {
               {!!doctor.about && (
                 <>
                   <Text style={s.sheetSection}>About</Text>
-                  <Text translate={false} style={s.body}>{doctor.about}</Text>
+                  <Text translate="live" style={s.body}>{doctor.about}</Text>
                 </>
               )}
             </ScrollView>

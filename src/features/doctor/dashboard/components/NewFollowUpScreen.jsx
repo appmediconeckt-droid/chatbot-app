@@ -2,7 +2,8 @@
 // web Follow-Up page's fields and payloads:
 //   create -> POST /api/followups  (patient from the doctor's appointments)
 //   edit   -> PUT  /api/followups/:id
-// Dates are sent as YYYY-MM-DD and times as HH:mm, same as the web inputs.
+// Dates are sent as YYYY-MM-DD, same as the web input. There is no time
+// field: a follow-up is for a day (an existing time is left as saved).
 import React, { useRef, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
@@ -16,6 +17,7 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey } from '../api/doctorAppointments';
 import { apiErrorMessage, createFollowUp, normalizeDateInput, updateFollowUp } from '../api/doctorFollowUps';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import displayLocale from '../../../../utils/displayLocale';
 
 const TYPES = [
   { value: 'routine', label: 'Routine' },
@@ -28,24 +30,9 @@ const STATUSES = [
   { value: 'completed', label: 'Completed' },
 ];
 
-const toTimeValue = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 const displayDate = (key) =>
-  key ? new Date(`${key}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '';
-const displayTime = (hhmm) => {
-  if (!hhmm) return '';
-  const [h, m] = hhmm.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m || 0, 0, 0);
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-};
-const pickerDate = (key, hhmm) => {
-  const d = key ? new Date(`${key}T00:00:00`) : new Date();
-  if (hhmm) {
-    const [h, m] = hhmm.split(':').map(Number);
-    d.setHours(h, m || 0, 0, 0);
-  }
-  return d;
-};
+  key ? new Date(`${key}T00:00:00`).toLocaleDateString(displayLocale('en-US'), { month: 'short', day: '2-digit', year: 'numeric' }) : '';
+const pickerDate = (key) => (key ? new Date(`${key}T00:00:00`) : new Date());
 
 export default function NewFollowUpScreen({ doctor, patients = [], followUp, onBack, onSaved }) {
   // Signup-style keyboard handling: the form scrolls above the keyboard and the
@@ -60,12 +47,10 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
   const editing = Boolean(followUp);
   const [patientId, setPatientId] = useState(followUp?.patientId || '');
   const [followUpDate, setFollowUpDate] = useState(editing ? normalizeDateInput(followUp.followUpDate) : '');
-  const [followUpTime, setFollowUpTime] = useState(followUp?.followUpTime ? String(followUp.followUpTime).slice(0, 5) : '');
   const [followUpType, setFollowUpType] = useState(followUp?.followUpType || 'routine');
   const [followUpStatus, setFollowUpStatus] = useState(followUp?.followUpStatus || 'pending');
   const [notes, setNotes] = useState(followUp?.notes && followUp.notes !== 'N/A' ? followUp.notes : '');
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
   const [open, setOpen] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   // State alone can't stop a fast double tap (both taps run before the
@@ -92,7 +77,6 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
       if (editing) {
         await updateFollowUp(doctor.id, followUp, {
           followUpDate,
-          followUpTime,
           followUpType,
           followUpStatus,
           notes: notes || 'N/A',
@@ -102,7 +86,6 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
           patientId,
           appointmentId: selectedPatient?.appointmentId,
           followUpDate,
-          followUpTime,
           followUpType,
           notes,
         }, selectedPatient);
@@ -150,22 +133,11 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
         {!!selectedPatient && !editing && (
           <Text translate={false} style={s.hint}>Issue: {selectedPatient.issue}</Text>
         )}
-        <View style={s.row}>
-          <View style={s.half}>
-            <Label text="DATE" />
-            <Pressable onPress={() => setShowDatePicker(true)} style={s.inputBox}>
-              <AppIcon name="calendar" size={17} color="#667085" />
-              <Text style={[s.selectText, !followUpDate && s.placeholder]}>{followUpDate ? displayDate(followUpDate) : 'Select date'}</Text>
-            </Pressable>
-          </View>
-          <View style={s.half}>
-            <Label text="TIME" />
-            <Pressable onPress={() => setShowTimePicker(true)} style={s.inputBox}>
-              <AppIcon name="clock" size={17} color="#667085" />
-              <Text style={[s.selectText, !followUpTime && s.placeholder]}>{followUpTime ? displayTime(followUpTime) : 'Select time'}</Text>
-            </Pressable>
-          </View>
-        </View>
+        <Label text="DATE" />
+        <Pressable onPress={() => setShowDatePicker(true)} style={s.inputBox}>
+          <AppIcon name="calendar" size={17} color="#667085" />
+          <Text style={[s.selectText, !followUpDate && s.placeholder]}>{followUpDate ? displayDate(followUpDate) : 'Select date'}</Text>
+        </Pressable>
         {showDatePicker && (
           <DateTimePicker
             value={pickerDate(followUpDate)}
@@ -175,17 +147,6 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
             onChange={(_event, selected) => {
               if (Platform.OS === 'android') setShowDatePicker(false);
               if (selected) setFollowUpDate(formatLocalDateKey(selected));
-            }}
-          />
-        )}
-        {showTimePicker && (
-          <DateTimePicker
-            value={pickerDate(followUpDate, followUpTime)}
-            mode="time"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={(_event, selected) => {
-              if (Platform.OS === 'android') setShowTimePicker(false);
-              if (selected) setFollowUpTime(toTimeValue(selected));
             }}
           />
         )}
@@ -258,8 +219,6 @@ const s = createDoctorStyles({
   optionSub: { fontSize: 12, color: '#8A94A4', marginTop: 2 },
   hint: { fontSize: 12.5, color: '#526078', marginTop: 6 },
   emptyOption: { fontSize: 13, color: '#8A94A4', padding: 13 },
-  row: { flexDirection: 'row', gap: 10 },
-  half: { flex: 1 },
   priority: { height: 43, backgroundColor: '#E6E9EE', borderRadius: 7, flexDirection: 'row', padding: 3 },
   priorityItem: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 5 },
   priorityActive: { backgroundColor: '#FFF', shadowColor: '#17243A', shadowOpacity: 0.08, shadowRadius: 2, elevation: 1 },

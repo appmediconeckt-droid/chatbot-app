@@ -4,6 +4,7 @@ import { consultationData } from './consultationData';
 import toImageUri from './imageUri';
 import { API_BASE_URL } from '../axiosConfig';
 import { formatPhoneNumber } from './countryCodes';
+import { getAppointmentVitals } from './appointmentVitals';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -30,6 +31,16 @@ const clinicalText = value => {
 };
 
 const listText = value => Array.isArray(value) ? value.filter(Boolean).join(', ') : typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+
+// Walk-in (QR) bookings carry a date of birth instead of an age.
+const ageFromBirthDate = (value) => {
+  const born = new Date(value || '');
+  if (Number.isNaN(born.getTime())) return undefined;
+  const now = new Date();
+  const age = now.getFullYear() - born.getFullYear()
+    - (now < new Date(now.getFullYear(), born.getMonth(), born.getDate()) ? 1 : 0);
+  return age >= 0 && age < 130 ? age : undefined;
+};
 
 export const approvedSignature = record => {
   const completedVisit = record.source === 'appointment' && record.verificationStatus === 'completed';
@@ -102,9 +113,11 @@ export const appointmentToDocument = (appointment = {}, doctorName) => {
     ...bookingSource(record, provider),
     opd: listText(record.opdNumber ?? record.token_number ?? record.token),
     patientId: listText(patient.id || patient._id || record.patientId),
-    age: listText(patient.age ?? record.age),
+    age: listText(patient.age ?? record.age ?? ageFromBirthDate(patient.dateOfBirth || patient.date_of_birth || record.date_of_birth || record.dateOfBirth)),
     phone: formatPhoneNumber(patient.phoneNumber || patient.phone || patient.mobile || record.phoneNumber || record.phone, patient.phoneCountryCode || record.phoneCountryCode),
-    weight: listText(record.vitals?.weight ?? patient.weight ?? patient.medicalInfo?.weight ?? record.weight),
+    // Vitals may arrive as a JSON string or under raw keys: read them like
+    // every vitals view does, then fall back to the patient's profile.
+    weight: listText(getAppointmentVitals(record).weight ?? patient.weight ?? patient.medicalInfo?.weight ?? record.weight),
     allergies: listText(patient.allergies || patient.medicalInfo?.allergies || record.allergies),
     signature: approvedSignature(record),
     patient: patient.name || patient.fullName || patient.full_name || record.name || record.patient_name || 'Patient',
@@ -250,10 +263,13 @@ ${PRESCRIPTION_DOCUMENT_CSS}
 .prescription-document-header, .prescription-patient-row, .prescription-medicines tr, .prescription-document-footer,
 .prescription-tests > p, .prescription-advice li { break-inside: avoid; page-break-inside: avoid; }
 .prescription-medicines thead { display: table-header-group; }
-/* The signature sits right on the doctor's name: drawn at its own shape and
-   bottom-aligned in its box, with no inline-image baseline gap under it. */
-.prescription-signature-space { display: flex; align-items: flex-end; justify-content: flex-end; }
-.prescription-signature-space img { display: block; width: auto; height: auto; max-width: 145px; max-height: 46px; }
+/* The signature sits directly on the doctor's name. Its wrapper follows the
+   image's real height instead of reserving a 46px slot, and line-height:0
+   removes the inline-image baseline gap in Android's PDF WebView. */
+.prescription-signature-space { height: auto; min-height: 0; margin: 0; padding: 0; line-height: 0; display: flex; align-items: flex-end; justify-content: center; }
+.prescription-signature-space img { display: block; width: auto; height: auto; max-width: 145px; max-height: 46px; margin: 0; padding: 0; }
+.prescription-signoff > strong { margin-top: 0; }
+.prescription-signature-space + strong { margin-top: -8px; }
 </style></head><body><div class="prescription-export"><article class="prescription-document">
 <img class="prescription-watermark" src="${prescriptionWatermark}" alt="" aria-hidden="true"/>
 <table class="rx-page"><thead><tr><td>
@@ -278,7 +294,7 @@ ${advice ? `<section class="prescription-section prescription-advice"><div><h3>A
 ${tests.length ? `<section class="prescription-section prescription-tests"><h3>Recommended tests</h3>${tests.map(test => `<p><strong>${esc(test.testName || test.name)}</strong>${esc(testLine(test))}</p>`).join('')}</section>` : ''}
 </td></tr>
 <tr class="rx-signoff-row"><td>
-<footer class="prescription-document-footer"><div class="prescription-followup">${CALENDAR_DAYS}<div><span>Next Follow-up:</span><strong>${esc(followUp)}</strong></div></div><div class="prescription-signoff"><div class="prescription-signature-space">${data.signature ? `<img src="${esc(data.signature)}" alt="Doctor signature"/>` : ''}</div><strong>${esc(data.doctor)}</strong>${has(data.qualification) ? `<p>${esc(data.qualification)}</p>` : ''}${has(data.registration) ? `<p>Reg. No.: ${esc(data.registration)}</p>` : ''}</div></footer>
+<footer class="prescription-document-footer"><div class="prescription-followup">${CALENDAR_DAYS}<div><span>Next Follow-up:</span><strong>${esc(followUp)}</strong></div></div><div class="prescription-signoff">${data.signature ? `<div class="prescription-signature-space"><img src="${esc(data.signature)}" alt="Doctor signature"/></div>` : ''}<strong>${esc(data.doctor)}</strong>${has(data.qualification) ? `<p>${esc(data.qualification)}</p>` : ''}${has(data.registration) ? `<p>Reg. No.: ${esc(data.registration)}</p>` : ''}</div></footer>
 </td></tr></tbody></table>
 <div class="rx-page-footer">
 ${hasContactFooter ? `<div class="prescription-contact-footer">${has(data.address) ? `<p>${esc(data.address)}</p>` : ''}<p>${esc(contact)}</p></div>` : ''}

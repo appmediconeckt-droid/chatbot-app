@@ -4,7 +4,8 @@
 // re-read every 15s (and on the portal's pull-to-refresh); a receptionist may
 // cancel a booking nobody has started.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Platform, Pressable, StyleSheet, View } from 'react-native';
+import TextInput from '../../../components/TranslatedTextInput';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../components/TranslatedText';

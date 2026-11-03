@@ -3,7 +3,8 @@
 // same eight readings with units, optional notes, and one Save button. The
 // caller saves.
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Pressable, StyleSheet, View } from 'react-native';
+import TextInput from './TranslatedTextInput';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from './TranslatedText';
 import { BLOOD_GROUPS, normalizeBloodGroup } from '../utils/appointmentVitals';

@@ -7,7 +7,8 @@
 // deducted, waiting for the next settlement) → Settled to bank; a cancelled
 // appointment's payment is held for refund review (web DoctorWallet.jsx).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Modal, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import TextInput from '../../../../components/TranslatedTextInput';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../components/TranslatedText';
@@ -25,6 +26,7 @@ import {
   methodLabel,
   settleTransaction,
 } from '../api/doctorEarnings';
+import displayLocale from '../../../../utils/displayLocale';
 
 const EMPTY_SUMMARY = { pending: 0, available: 0, settled: 0, platformFees: 0, grossCollected: 0, refunded: 0, held: 0, processing: 0 };
 
@@ -39,19 +41,19 @@ const TYPE_META = {
 const formatDateTime = (value) => {
   const date = new Date(value);
   if (!value || Number.isNaN(date.getTime())) return '';
-  return `${date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}, ${date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+  return `${date.toLocaleDateString(displayLocale('en-IN'), { day: 'numeric', month: 'short', year: 'numeric' })}, ${date.toLocaleTimeString(displayLocale('en-IN'), { hour: 'numeric', minute: '2-digit' })}`;
 };
 
 const formatShortDateTime = (value) => {
   const date = new Date(value);
   if (!value || Number.isNaN(date.getTime())) return '';
-  return `${date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, ${date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+  return `${date.toLocaleDateString(displayLocale('en-IN'), { day: 'numeric', month: 'short' })}, ${date.toLocaleTimeString(displayLocale('en-IN'), { hour: 'numeric', minute: '2-digit' })}`;
 };
 
 const formatDay = (value) => {
   const date = new Date(value);
   if (!value || Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return date.toLocaleDateString(displayLocale('en-IN'), { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
 const initialsOf = (name) => String(name || '').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();

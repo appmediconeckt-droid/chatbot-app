@@ -1,5 +1,6 @@
 import axiosInstance from '../../../../axiosConfig';
 import { appointmentToDocument } from '../../../../utils/consultationPrescriptionDocument';
+import { hasAppointmentVitals } from '../../../../utils/appointmentVitals';
 import { getAppointmentSource, loadAppointmentPrescription } from './doctorAppointments';
 
 // Queue cards and patient history must print the same saved consultation.
@@ -33,6 +34,9 @@ export async function loadDoctorPrescriptionDocument(appointment) {
     verificationStatus: ['completed', 'complete'].includes(String(record.status).toLowerCase()) ? 'completed' : raw.verificationStatus,
     patient: raw.patient || raw.patientSnapshot || { name: record.name, gender: record.gender, id: record.patientId, phone: record.phone },
     issue: raw.issue || raw.problem || record.issue,
+    // The saved record may lack the vitals the queue row already shows
+    // (recorded during the consultation): the weight on the Rx comes from them.
+    vitals: hasAppointmentVitals(raw) ? raw.vitals : (appointment.vitals || raw.vitals),
     __appointmentSource: getAppointmentSource(appointment),
   }, doctor.fullName || doctor.name);
 }

@@ -14,6 +14,7 @@ import { toImageUri } from '../../../../../../utils/imageUri';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
 import { buildInternationalPhoneNumber, isValidMobileNumber, phoneNumberError, splitInternationalPhoneNumber } from '../../../../../../utils/countryCodes';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 const API = `${API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
 const GENDERS = [
@@ -48,7 +49,7 @@ const calculateAge = (dateKey) => {
   return String(age);
 };
 const formatDob = (key) => (key
-  ? new Date(`${key}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  ? new Date(`${key}T00:00:00`).toLocaleDateString(displayLocale('en-GB'), { day: '2-digit', month: 'short', year: 'numeric' })
   : '');
 const formatTime = (key) => {
   if (!key) return '';

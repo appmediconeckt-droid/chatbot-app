@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Text from './TranslatedText';
+import displayLocale from '../utils/displayLocale';
 import { getAppointmentVitals, hasAppointmentVitals, hasVitalValue, VITAL_FIELDS } from '../utils/appointmentVitals';
 
 export default function VitalsSummary({ appointment, title = 'Patient vitals' }) {
@@ -21,7 +22,7 @@ export default function VitalsSummary({ appointment, title = 'Patient vitals' })
       <Text translate={false} style={s.notesText}>{vitals.notes}</Text>
     </View>}
     {Number.isFinite(recordedDate.getTime()) && <Text translate={false} style={s.meta}>
-      {recordedDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST{vitals.recorded_role ? ` · ${vitals.recorded_role}` : ''}
+      {recordedDate.toLocaleString(displayLocale('en-IN'), { timeZone: 'Asia/Kolkata' })} IST{vitals.recorded_role ? ` · ${vitals.recorded_role}` : ''}
     </Text>}
   </View>;
 }

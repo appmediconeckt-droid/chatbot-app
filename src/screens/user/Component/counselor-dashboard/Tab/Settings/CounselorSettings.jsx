@@ -646,7 +646,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                       <Text style={styles.rowLabel}>{t(item.label)}</Text>
                     </View>
                     <View style={styles.rowTrail}>
-                      <Text style={styles.rowValue} numberOfLines={1} translate={false}>{currentLanguageName}</Text>
+                      <Text style={styles.rowValue} numberOfLines={1} translate="never">{currentLanguageName}</Text>
                       <Feather name="chevron-right" size={18} color="#cbd5e1" />
                     </View>
                   </LanguageSelector>

@@ -17,6 +17,7 @@ import {
   Alert,
   AppState,
   KeyboardAvoidingView,
+  Keyboard,
 } from "react-native";
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
@@ -186,6 +187,12 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   const [userAnonymous, setUserAnonymous] = useState("");
   const [uniqueLocations, setUniqueLocations] = useState([]);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  // Location suggestions close with the keyboard (Android back hides the
+  // keyboard without blurring the field).
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => setShowLocationDropdown(false));
+    return () => sub.remove();
+  }, []);
   const [imageErrors, setImageErrors] = useState({});
   const socketRef = useRef(null);
 
@@ -875,6 +882,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
 
       <FlatList
         key={`consultants-${columns}`}
+        keyboardShouldPersistTaps="handled"
         numColumns={columns}
         data={filteredAndSortedCounselors}
         renderItem={(item) => <View style={{ flex: 1, maxWidth: `${100 / columns}%` }}>{renderCounselorCard(item)}</View>}
@@ -914,6 +922,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                     setShowLocationDropdown(true);
                   }}
                   onFocus={() => setShowLocationDropdown(true)}
+                  onBlur={() => setShowLocationDropdown(false)}
                 />
                 {searchLocation.length > 0 && (
                   <TouchableOpacity onPress={() => setSearchLocation("")}>
@@ -925,7 +934,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               {/* Location Dropdown */}
               {showLocationDropdown && uniqueLocations.length > 0 && searchLocation.length > 0 && (
                 <View style={styles.locationDropdown}>
-                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                     {uniqueLocations
                       .filter(location => 
                         location.toLowerCase().includes(searchLocation.toLowerCase())
@@ -937,6 +946,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                           onPress={() => {
                             setSearchLocation(location);
                             setShowLocationDropdown(false);
+                            Keyboard.dismiss();
                           }}
                         >
                           <Text>📍 {location}</Text>

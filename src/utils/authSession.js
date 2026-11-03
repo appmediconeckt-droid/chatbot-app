@@ -49,6 +49,26 @@ export const clearAccountLocalData = async () => {
 
 export const clearStoredSessionAndAccountCache = clearAccountLocalData;
 
+// Device settings that outlive a sign-out: the app language, each account's
+// own language (userLang_<role>_<id>) and the translation / country caches.
+const isDevicePreferenceKey = (key) => {
+  const value = String(key || '');
+  return (
+    value === 'appLanguage' ||
+    value.startsWith('userLang_') ||
+    value.startsWith('translation_cache_') ||
+    value.startsWith('countryStates:') ||
+    value.startsWith('countryCities:')
+  );
+};
+
+// Full sign-out wipe (what AsyncStorage.clear() did) that keeps the device
+// settings above, so the next sign-in still finds every account's language.
+export const clearAllExceptDevicePreferences = async () => {
+  const keys = await AsyncStorage.getAllKeys();
+  await AsyncStorage.multiRemove(keys.filter((key) => !isDevicePreferenceKey(key)));
+};
+
 export const resetToRoleSelector = (navigation) => {
   navigation?.replace?.('RoleSelector');
 };

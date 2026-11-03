@@ -208,10 +208,12 @@ export default function ConsultationPrescriptionDocument({ data, bleed = 0 }) {
         </View>
         {/* Signature sits right above the doctor's name, centred on it. */}
         <View style={s.signoff}>
-          <View style={s.signatureSpace}>
-            {!!data.signature && <Image source={{ uri: data.signature }} style={[s.signature, signatureSize]} accessibilityLabel="Doctor signature" />}
-          </View>
-          <Text translate={false} style={s.signName}>{data.doctor}</Text>
+          {!!data.signature && (
+            <View style={s.signatureSpace}>
+              <Image source={{ uri: data.signature }} style={[s.signature, signatureSize]} accessibilityLabel="Doctor signature" />
+            </View>
+          )}
+          <Text translate={false} style={[s.signName, !!data.signature && s.signNameWithSignature]}>{data.doctor}</Text>
           {has(data.qualification) && <Text translate={false} style={s.signMeta}>{data.qualification}</Text>}
           {has(data.registration) && <Text translate={false} style={s.signMeta}>Reg. No.: {data.registration}</Text>}
         </View>
@@ -339,9 +341,14 @@ const s = StyleSheet.create({
   followUpLabel: { fontSize: 13, fontWeight: '700', color: INK },
   followUpValue: { fontSize: 12, color: INK },
   signoff: { maxWidth: '50%', alignItems: 'center' },
-  signatureSpace: { height: 46, justifyContent: 'flex-end', alignItems: 'center' },
+  // Content-height only: a fixed 46px slot left a visible blank band above the
+  // doctor's name whenever the saved signature was shorter (or absent).
+  signatureSpace: { justifyContent: 'flex-end', alignItems: 'center', margin: 0, padding: 0 },
   signature: { resizeMode: 'contain' },
-  signName: { fontSize: 14, fontWeight: '700', color: TEAL, textAlign: 'center', marginTop: 1 },
+  signName: { fontSize: 14, fontWeight: '700', color: TEAL, textAlign: 'center', marginTop: 0 },
+  // Uploaded signatures can contain a little transparent canvas below the
+  // ink. Pull the name into that canvas so the two look visually attached.
+  signNameWithSignature: { marginTop: -8 },
   signMeta: { fontSize: 11, lineHeight: 15, color: INK, textAlign: 'center' },
 
   contactFooter: { borderTopWidth: 1, borderTopColor: '#99DED5', paddingTop: 7, paddingBottom: 3, alignItems: 'center' },

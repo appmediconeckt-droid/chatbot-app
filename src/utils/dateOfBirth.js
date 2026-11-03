@@ -1,3 +1,4 @@
+import displayLocale from './displayLocale';
 export const parseDateOnly = (value) => {
   if (!value) return null;
 
@@ -58,7 +59,7 @@ export const formatDateOfBirthDisplay = (value, fallback = "") => {
   const date = parseDateOnly(value);
   if (!date) return fallback;
 
-  return date.toLocaleDateString("en-GB", {
+  return date.toLocaleDateString(displayLocale('en-GB'), {
     day: "numeric",
     month: "long",
     year: "numeric",

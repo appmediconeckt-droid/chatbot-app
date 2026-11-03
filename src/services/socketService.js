@@ -1,9 +1,5 @@
 // src/services/socketService.js
-// Singleton Socket.IO client for the RN app. Mirrors web's services/socketService.js.
-// One shared socket per app session — screens subscribe/unsubscribe to events
-// without creating duplicate connections. Backend marks the authenticated user
-// "online" when the socket connects and "offline" on disconnect, so keeping one
-// long-lived socket alive is what makes presence work correctly.
+
 
 import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';

@@ -14,6 +14,8 @@ import LocationPicker from './LocationPicker';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import { isValidMobileNumber, normalizeLocalPhoneNumber, phoneNumberError, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import CountryStateSelect from '../../../../components/common/CountryStateSelect';
+import { DEFAULT_COUNTRY, currencyForCountry, findCountry } from '../../../../utils/consultationCurrency';
 
 // Edge-to-edge Android doesn't shrink the window for the keyboard, so the
 // form reserves the keyboard's height at the bottom and scrolls the focused
@@ -55,6 +57,9 @@ function toInitial(profile) {
     consultationMode: toConsultationMode(profile?.consultationMode ?? profile?.consultation_mode),
     summary: profile?.aboutMe || '',
     location: profile?.location || '',
+    country: findCountry(profile?.address?.country)?.name || profile?.address?.country || DEFAULT_COUNTRY,
+    state: profile?.address?.state || '',
+    city: profile?.address?.city || '',
   };
 }
 
@@ -120,6 +125,19 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
       if (form.experience) formData.append('experience', String(Number(form.experience)));
       if (form.summary.trim()) formData.append('aboutMe', form.summary.trim());
       if (form.location.trim()) formData.append('location', form.location.trim());
+      const initial = toInitial(profile);
+      if (form.country !== initial.country || form.state.trim() !== initial.state || form.city.trim() !== initial.city) {
+        // `address` replaces the whole saved address, so the rest is sent back unchanged.
+        formData.append('address', JSON.stringify({ ...(profile?.address || {}), country: form.country, state: form.state.trim(), city: form.city.trim() }));
+        // The server takes the fee currency from the profile country, so a new
+        // country brings its currency (as the clinic fee forms do).
+        const currency = currencyForCountry(form.country);
+        if (form.country !== initial.country && currency) {
+          formData.append('consultationCurrency', currency);
+          const savedFee = Number(profile?.consultationFee);
+          if (Number.isFinite(savedFee) && savedFee > 0) formData.append('consultationFee', String(savedFee));
+        }
+      }
       const languagesArr = form.languages
         .split(',')
         .map((v) => v.trim())
@@ -189,7 +207,7 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
               <AppIcon name="camera" size={13} color="#FFF" strokeWidth={2} />
             </Pressable>
             <Text translate={false} style={s.name}>{form.fullName || 'Doctor'}</Text>
-            <Text translate={false} style={s.role}>{form.qualification}</Text>
+            <Text style={s.role}>{form.qualification}</Text>
           </View>
         </View>
 
@@ -266,7 +284,44 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
         </Section>
 
         <Section icon="pin" label="Location">
-          <LocationPicker value={form.location} onChange={set('location')} />
+          <View style={s.fieldRow}>
+            <View style={[s.field, s.fieldHalf]}>
+              <Text style={s.fieldLabel}>Country</Text>
+              <CountryStateSelect
+                kind="country"
+                style={s.fieldInput}
+                textStyle={s.selectText}
+                value={form.country}
+                onChange={(country) => setForm((prev) => ({ ...prev, country, state: '', city: '' }))}
+              />
+            </View>
+            <View style={[s.field, s.fieldHalf]}>
+              <Text style={s.fieldLabel}>State</Text>
+              <CountryStateSelect
+                kind="state"
+                style={s.fieldInput}
+                textStyle={s.selectText}
+                country={form.country}
+                value={form.state}
+                onChange={(state, fromList) => setForm((prev) => ({ ...prev, state, city: fromList ? '' : prev.city }))}
+                onFocus={scrollFocusedInputIntoView}
+              />
+            </View>
+          </View>
+          <View style={s.field}>
+            <Text style={s.fieldLabel}>City</Text>
+            <CountryStateSelect
+              kind="city"
+              style={s.fieldInput}
+              textStyle={s.selectText}
+              country={form.country}
+              state={form.state}
+              value={form.city}
+              onChange={set('city')}
+              onFocus={scrollFocusedInputIntoView}
+            />
+          </View>
+          <LocationPicker value={form.location} onChange={set('location')} countryCode={findCountry(form.country)?.code} />
         </Section>
       </ScrollView>
       </KeyboardFocusContext.Provider>
@@ -391,6 +446,7 @@ const s = createDoctorStyles({
   fieldRow: { flexDirection: 'row', gap: 10 },
   fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginBottom: 6 },
   fieldInput: { height: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, paddingHorizontal: 12, fontSize: 13.5, color: '#17243A' },
+  selectText: { fontSize: 13.5, color: '#17243A' },
   genderRow: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: 12, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0' },
   genderChip: { flex: 1, height: 40, borderRadius: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   genderChipActive: { backgroundColor: '#0D9488' },

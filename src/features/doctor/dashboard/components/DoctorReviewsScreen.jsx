@@ -14,6 +14,7 @@ import {
   loadDoctorReviews,
   summarizeReviews,
 } from '../api/doctorAppointments';
+import displayLocale from '../../../../utils/displayLocale';
 
 const TABS = [
   { key: 'doctor', label: 'My Reviews', icon: 'person-outline' },
@@ -32,7 +33,7 @@ const FILTERS = [
 const formatDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return date.toLocaleDateString(displayLocale('en-IN'), { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
 const initialsOf = (name) => String(name || 'P').trim().split(/\s+/).slice(0, 2)

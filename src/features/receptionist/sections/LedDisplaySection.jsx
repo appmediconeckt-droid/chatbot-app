@@ -210,7 +210,8 @@ export default function LedDisplaySection({ profile, clinic, onNavigate }) {
                       ['Est. wait', wait],
                     ].map(([label, value], index) => (
                       <View key={label} style={[s.tvStat, index > 0 && s.tvStatDivider]}>
-                        <Text translate={false} style={s.tvStatValue} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+                        {/* The server's wait text ("No waiting patients") is shown in the app language. */}
+                        <Text style={s.tvStatValue} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
                         <Text style={s.tvStatLabel}>{label}</Text>
                       </View>
                     ))}
@@ -218,7 +219,7 @@ export default function LedDisplaySection({ profile, clinic, onNavigate }) {
 
                   <View style={[s.tvFooter, !!queue.breakInfo?.headline && s.tvFooterBreak]}>
                     <Ionicons name={queue.breakInfo?.headline ? 'cafe-outline' : 'pulse-outline'} size={14} color={queue.breakInfo?.headline ? '#FBBF24' : '#5EEAD4'} />
-                    <Text translate={false} style={[s.tvFooterText, !!queue.breakInfo?.headline && s.tvFooterTextBreak]} numberOfLines={2}>{statusLine}</Text>
+                    <Text style={[s.tvFooterText, !!queue.breakInfo?.headline && s.tvFooterTextBreak]} numberOfLines={2}>{statusLine}</Text>
                   </View>
                 </>
               )}

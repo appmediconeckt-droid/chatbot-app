@@ -72,7 +72,8 @@ const reverseGeocode = async (latitude, longitude) => {
   return shortAddress(await res.json());
 };
 
-export default function LocationPicker({ value, onChange, label = 'Location / Address' }) {
+// `countryCode` (ISO, default India) limits the address search to that country.
+export default function LocationPicker({ value, onChange, label = 'Location / Address', countryCode = 'IN' }) {
   const [query, setQuery] = useState(value || '');
   const [suggestions, setSuggestions] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -99,7 +100,7 @@ export default function LocationPicker({ value, onChange, label = 'Location / Ad
       setSearching(true);
       try {
         const res = await fetch(
-          `${NOMINATIM}/search?format=json&addressdetails=1&limit=6&countrycodes=in&q=${encodeURIComponent(term)}`,
+          `${NOMINATIM}/search?format=json&addressdetails=1&limit=6&countrycodes=${encodeURIComponent(String(countryCode || 'IN').toLowerCase())}&q=${encodeURIComponent(term)}`,
           { headers: HEADERS },
         );
         const data = res.ok ? await res.json() : [];
@@ -111,7 +112,7 @@ export default function LocationPicker({ value, onChange, label = 'Location / Ad
       }
     }, 450);
     return () => clearTimeout(timerRef.current);
-  }, [query, focused]);
+  }, [query, focused, countryCode]);
 
   const choose = (address) => {
     skipSearchRef.current = true;

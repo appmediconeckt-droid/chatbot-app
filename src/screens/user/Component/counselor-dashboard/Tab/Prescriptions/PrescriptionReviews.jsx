@@ -35,6 +35,7 @@ import {
 } from '../../../../../../utils/consultantSignature';
 import SignaturePad from '../../../../../../components/SignaturePad';
 import { KeyboardSheetOverlay } from '../../../../../../components/common/KeyboardSheet';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 const statusColors = {
   verified: ['#DCFCE7', '#166534'],
@@ -759,7 +760,7 @@ export default function PrescriptionReviews({ onClose } = {}) {
                         </View>
                       </View>
                       <Text style={s.rvDoctor} numberOfLines={1}>
-                        {practitioner.name} · {new Date(item.issuedAt).toLocaleDateString('en-IN')}
+                        {practitioner.name} · {new Date(item.issuedAt).toLocaleDateString(displayLocale('en-IN'))}
                       </Text>
                     </View>
                   </View>

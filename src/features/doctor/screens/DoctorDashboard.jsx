@@ -97,6 +97,32 @@ import { KeyboardSheetOverlay } from '../../../components/common/KeyboardSheet';
 import { useToast } from '../../../components/common/ToastProvider';
 
 
+// Vitals the doctor saved this session (by appointment id) laid over the
+// server's copy. The queue list the server returns may not carry an
+// appointment's vitals yet, and without this a refetch right after saving
+// wiped them: the consultation card went back to "Add" and showed nothing.
+const withSavedVitals = (appt, savedById) => {
+  const saved = appt && savedById.get(appt.id);
+  if (!saved) return appt;
+  return {
+    ...appt,
+    vitals: { ...(appt.vitals || {}), ...saved },
+    bp: saved.blood_pressure || appt.bp,
+    temperature: saved.temperature ?? appt.temperature,
+  };
+};
+
+// When a consultation finished (ms), for the Completed tab: the patient
+// completed last is on top, like a stack, not in token order.
+const completedAtMs = (appt) => {
+  const raw = appt?.__raw || {};
+  const value = [
+    raw.consultation_ended_at, raw.consultationEndedAt, raw.consultation_timing?.endedAt,
+    raw.actual_end_at, raw.end_time, raw.endTime, raw.updatedAt, raw.updated_at,
+  ].find((v) => v && Number.isFinite(Date.parse(v)));
+  return value ? Date.parse(value) : 0;
+};
+
 // Same events the counsellor dashboard refreshes on, so a booking shows up on
 // the doctor's queue as soon as the server announces it.
 const APPOINTMENT_REFRESH_EVENTS = [
@@ -591,6 +617,7 @@ export default function DoctorDashboard({ navigation, route }) {
   const [completedAll, setCompletedAll] = useState([]);
   const fetchInFlightRef = useRef(false);
   const skippedAppointmentIdsRef = useRef(new Set());
+  const savedVitalsRef = useRef(new Map());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -722,7 +749,8 @@ export default function DoctorDashboard({ navigation, route }) {
             return appt;
           }
           return { ...appt, status: 'skipped', queueStatus: 'skipped' };
-        });
+        })
+        .map((appt) => withSavedVitals(appt, savedVitalsRef.current));
       const progressEntries = await Promise.all(liveAppointmentList.map(async (appointment) => [
         appointment.id,
         await readAppointmentCallProgress(appointmentCallProgressKey(doctorId, appointment)),
@@ -1282,7 +1310,10 @@ export default function DoctorDashboard({ navigation, route }) {
   ];
   // The dashboard queue is for today. Older completed history belongs in the
   // appointments/history screen and must not linger here as repeated cards.
-  const completedQueue = useMemo(() => sortByToken(completed), [completed]);
+  const completedQueue = useMemo(
+    () => sortByToken(completed).sort((a, b) => completedAtMs(b) - completedAtMs(a)),
+    [completed],
+  );
   // Patients moved aside with "Next" in the consent form.
   const skippedAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'skipped'));
   // Strict queue order: only the patient at the top of Pending (emergencies
@@ -1748,17 +1779,15 @@ export default function DoctorDashboard({ navigation, route }) {
             onClose={() => setVitalsOpen(false)}
             onSaved={(saved) => {
               setVitalsOpen(false);
-              // Show the new readings straight away (card, Complete form); the
-              // silent refetch then brings the server's copy.
+              const id = activeSession?.appt?.id;
+              if (id) savedVitalsRef.current.set(id, { ...(savedVitalsRef.current.get(id) || {}), ...saved });
+              // Show the new readings straight away (card "Edit", queue row,
+              // Complete form); later refetches keep them (withSavedVitals).
               setActiveSession((current) => (current?.appt ? {
                 ...current,
-                appt: {
-                  ...current.appt,
-                  vitals: { ...(current.appt.vitals || {}), ...saved },
-                  bp: saved.blood_pressure || current.appt.bp,
-                  temperature: saved.temperature ?? current.appt.temperature,
-                },
+                appt: withSavedVitals(current.appt, savedVitalsRef.current),
               } : current));
+              setAppointments((list) => list.map((a) => (a.id === id ? withSavedVitals(a, savedVitalsRef.current) : a)));
               fetchAppointments({ silent: true });
             }}
           />

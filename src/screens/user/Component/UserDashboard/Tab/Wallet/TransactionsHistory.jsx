@@ -17,7 +17,8 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import LinearGradient from 'react-native-linear-gradient';
 import axiosInstance from '../../../../../../axiosConfig';
 import PATIENT from '../../../../../../theme/palette';
-import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 const FILTERS = [
   { id: 'All', label: 'All' },
@@ -63,6 +64,10 @@ const TransactionsHistory = ({ navigation }) => {
     hasNextPage: false,
   });
   const [loading, setLoading] = useState(true);
+  // After the first answer the list stays on screen: a filter chip or search
+  // only shows a small loader under the chips, so the search field keeps its
+  // focus and the screen doesn't blank out to a spinner.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
@@ -112,6 +117,7 @@ const TransactionsHistory = ({ navigation }) => {
         setLoading(false);
         setRefreshing(false);
         setLoadingMore(false);
+        setHasLoaded(true);
       }
     }
   }, [buildParams]);
@@ -147,7 +153,7 @@ const TransactionsHistory = ({ navigation }) => {
         const d = new Date(tx.createdAt);
         const key = Number.isNaN(d.getTime())
           ? 'Unknown'
-          : d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+          : d.toLocaleDateString(displayLocale('en-US'), { month: 'long', year: 'numeric' });
         if (!byMonth.has(key)) byMonth.set(key, []);
         byMonth.get(key).push(tx);
       });
@@ -171,7 +177,7 @@ const TransactionsHistory = ({ navigation }) => {
     const st = statusStyle(tx.status);
 
     const d = new Date(tx.createdAt);
-    const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const dateLabel = d.toLocaleDateString(displayLocale('en-US'), { month: 'short', day: 'numeric' });
     const timeLabel = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const sessionType = tx.metadata?.sessionType;
     const mins = tx.metadata?.billedMinutes;
@@ -266,6 +272,13 @@ const TransactionsHistory = ({ navigation }) => {
         })}
       </View>
 
+      {loading && hasLoaded && (
+        <View style={s.filterLoader}>
+          <ActivityIndicator size="small" color={PATIENT.primary} />
+          <Text style={s.footerText}>{t('Updating...')}</Text>
+        </View>
+      )}
+
       {pagination.total > 0 && (
         <Text style={s.paginationSummary}>
           Showing {showingStart}-{showingEnd} of {pagination.total} transactions
@@ -327,7 +340,7 @@ const TransactionsHistory = ({ navigation }) => {
         <View style={{ width: 24 }} />
       </View>
 
-      {loading ? (
+      {loading && !hasLoaded ? (
         <View style={s.center}><ActivityIndicator size="large" color={PATIENT.primary} /></View>
       ) : (
         <SectionList
@@ -340,9 +353,12 @@ const TransactionsHistory = ({ navigation }) => {
               <Text style={s.dateHeaderText}>{section.month}</Text>
             </View>
           )}
-          ListHeaderComponent={renderHeader}
+          // Elements, not components: a new function here each render would
+          // remount the header and drop the search field's focus.
+          ListHeaderComponent={renderHeader()}
+          keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
-            error ? (
+            loading ? null : error ? (
               <View style={s.empty}>
                 <Ionicons name="cloud-offline-outline" size={38} color="#cbd5e1" />
                 <Text style={s.emptyText}>{error}</Text>
@@ -357,7 +373,7 @@ const TransactionsHistory = ({ navigation }) => {
               </View>
             )
           }
-          ListFooterComponent={renderFooter}
+          ListFooterComponent={renderFooter()}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -420,6 +436,7 @@ const s = StyleSheet.create({
   emptyText: { fontSize: 14, color: '#94a3b8', fontWeight: '500' },
   retryBtn: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: 999, backgroundColor: PATIENT.primary },
   retryText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  filterLoader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 8 },
   footerLoader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 18 },
   footerText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
   paginationFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 16, marginTop: 18, marginBottom: 30, gap: 10 },

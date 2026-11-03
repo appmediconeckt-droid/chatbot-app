@@ -803,7 +803,7 @@ const Login = ({ navigation, route }) => {
       <View style={[styles.langWrap, { top: Math.max(insets.top, 12) + 6 }]}>
         <LanguageSelector brand={BRAND.primary} triggerStyle={styles.langPill}>
           <Ionicons name="globe-outline" size={17} color={BRAND.primary} />
-          <Text style={styles.langText} numberOfLines={1} translate={false}>{currentLanguageName}</Text>
+          <Text style={styles.langText} numberOfLines={1} translate="never">{currentLanguageName}</Text>
           <Ionicons name="chevron-down" size={14} color={BRAND.primary} />
         </LanguageSelector>
       </View>
@@ -831,7 +831,7 @@ const Login = ({ navigation, route }) => {
                 <Image source={logo} style={logoStyle} resizeMode="contain" />
               </Animated.View>
               {/* Brand name: never translated (translating it returned "_4_"-style placeholders). */}
-              <Text translate={false} style={[styles.brandName, { color: C.primary }]}>Humaeli</Text>
+              <Text translate="never" style={[styles.brandName, { color: C.primary }]}>Humaeli</Text>
               <Text style={styles.subtitle}>{t('Sign in to continue')}</Text>
             </View>
             {/* Same as Signup: the header stays fixed and the form scrolls

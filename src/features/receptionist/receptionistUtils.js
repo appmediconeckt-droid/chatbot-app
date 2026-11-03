@@ -2,6 +2,7 @@
 // receptionistDisplay.js, staffProfileDetails.js, appointmentCancellation.js).
 import { parseEmergencySymptoms } from '../../utils/emergencyTag';
 import { isPatientAccountDeleted } from '../../utils/deletedAccount';
+import displayLocale from '../../utils/displayLocale';
 
 // The clinic runs on India time, whatever the phone's own zone is.
 const indiaNow = () => new Date(Date.now() + 330 * 60000);
@@ -23,6 +24,13 @@ export const dateLabel = (value) => {
   const key = String(value || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return 'Not recorded';
   const [y, mo, d] = key.split('-').map(Number);
+  // Other languages: the month in that language ("14 अक्टू॰ 2026").
+  const locale = displayLocale(null);
+  if (locale) {
+    try {
+      return new Date(Date.UTC(y, mo - 1, d)).toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+    } catch { /* unsupported locale: English below */ }
+  }
   const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mo - 1];
   return `${String(d).padStart(2, '0')} ${month} ${y}`;
 };

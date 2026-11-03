@@ -10,7 +10,14 @@ import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import VitalsSummary from '../../../../components/VitalsSummary';
-import { hasAppointmentVitals } from '../../../../utils/appointmentVitals';
+import { getAppointmentVitals, hasAppointmentVitals } from '../../../../utils/appointmentVitals';
+
+// The visit whose vitals were recorded last: by the recording time when the
+// server gives one, else the newest visit (records are newest first).
+const latestVitalsRecord = (records) => records
+  .filter(hasAppointmentVitals)
+  .map((record, index) => ({ record, index, at: Date.parse(getAppointmentVitals(record).recorded_at || '') || 0 }))
+  .sort((x, y) => (y.at - x.at) || (x.index - y.index))[0]?.record;
 
 const PAGE_SIZE = 10;
 
@@ -85,7 +92,7 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
           </View>
         </LinearGradient>
 
-        <VitalsSummary appointment={records.find(hasAppointmentVitals)} title="Latest recorded vitals" />
+        <VitalsSummary appointment={latestVitalsRecord(records)} title="Latest recorded vitals" />
         <View style={s.sectionRow}>
           <AppIcon name="calendar" size={16} color="#0D9488" />
           <Text style={s.section}>Visit History ({records.length} appointments)</Text>

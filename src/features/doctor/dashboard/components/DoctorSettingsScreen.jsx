@@ -146,7 +146,7 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
         <Text style={s.rowTitle}>{row.title}</Text>
         <Text style={s.rowSubtitle}>{row.subtitle}</Text>
       </View>
-      <Text style={s.rowValue} numberOfLines={1} translate={false}>{currentLanguageName}</Text>
+      <Text style={s.rowValue} numberOfLines={1} translate="never">{currentLanguageName}</Text>
       <AppIcon name="chevron-right" size={18} color="#9AA6B8" strokeWidth={2} />
     </LanguageSelector>
   );

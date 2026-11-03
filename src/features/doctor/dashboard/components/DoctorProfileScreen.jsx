@@ -214,6 +214,11 @@ export default function DoctorProfileScreen({ onBack }) {
 
         <Section icon="pin" label="Location">
           <Text translate={false} style={s.subLabel}>{profile?.location || 'Not set'}</Text>
+          {!!(profile?.address?.city || profile?.address?.state || profile?.address?.country) && (
+            <Text translate={false} style={s.subLabel}>
+              {[profile.address.city, profile.address.state, profile.address.country].filter(Boolean).join(', ')}
+            </Text>
+          )}
           <View style={s.mapPreview}>
             <AppIcon name="pin" size={22} color="#0D9488" strokeWidth={2} />
           </View>
@@ -224,7 +229,7 @@ export default function DoctorProfileScreen({ onBack }) {
 
         {!!profile?.aboutMe && (
           <Section icon="file" label="About">
-            <Text translate={false} style={s.subLabel}>{profile.aboutMe}</Text>
+            <Text translate="live" style={s.subLabel}>{profile.aboutMe}</Text>
           </Section>
         )}
       </ScrollView>

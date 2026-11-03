@@ -20,6 +20,8 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    @Volatile private var ttsSession = 0
+    @Volatile private var pendingSettle: ((String?, Boolean) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // Android Voice has no gender field. Recognize explicit gender tokens and
@@ -56,6 +58,60 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    // Java keeps legacy ISO codes for a few languages (he->iw, id->in, yi->ji),
+    // and engines report either form, so compare on one canonical code.
+    private fun canonicalLanguage(code: String): String = when (code.lowercase(Locale.ROOT)) {
+        "iw" -> "he"
+        "in" -> "id"
+        "ji" -> "yi"
+        "fil" -> "tl"
+        "nb", "nn" -> "no"
+        else -> code.lowercase(Locale.ROOT)
+    }
+
+    private fun isInstalled(voice: Voice) =
+        !voice.features.orEmpty().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+
+    // Prefer a male voice for the language, then any installed voice for it,
+    // then whatever the engine picks for the locale. Only fail when the phone
+    // has no voice data for the language at all.
+    private fun selectVoice(engine: TextToSpeech, locale: Locale): Boolean {
+        val language = canonicalLanguage(locale.language)
+        val candidates = engine.voices.orEmpty()
+            .filter { canonicalLanguage(it.locale.language) == language && isInstalled(it) }
+            .sortedWith(compareBy<Voice> { !isMaleVoice(it, engine) }
+                .thenBy { !it.locale.country.equals(locale.country, ignoreCase = true) }
+                .thenBy { it.isNetworkConnectionRequired }
+                .thenByDescending { it.quality }
+                .thenBy { it.name })
+        if (candidates.any { engine.setVoice(it) == TextToSpeech.SUCCESS }) return true
+        val result = engine.setLanguage(locale)
+        return result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
+    }
+
+    // Engines reject input longer than getMaxSpeechInputLength(), so long
+    // replies are queued in sentence-sized chunks.
+    private fun chunkText(text: String): List<String> {
+        val max = minOf(TextToSpeech.getMaxSpeechInputLength(), 3000)
+        if (text.length <= max) return listOf(text)
+        val chunks = mutableListOf<String>()
+        val current = StringBuilder()
+        Regex("[^.!?।\\n]+[.!?।\\n]*").findAll(text).map { it.value }.forEach { part ->
+            if (current.length + part.length > max && current.isNotEmpty()) {
+                chunks.add(current.toString())
+                current.clear()
+            }
+            var rest = part
+            while (rest.length > max) {
+                chunks.add(rest.substring(0, max))
+                rest = rest.substring(max)
+            }
+            current.append(rest)
+        }
+        if (current.isNotBlank()) chunks.add(current.toString())
+        return chunks
+    }
+
     @ReactMethod
     fun speak(text: String, lang: String, promise: Promise) {
         mainHandler.post {
@@ -65,37 +121,72 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
                 return@post
             }
             val locale = Locale.forLanguageTag(lang.replace('_', '-'))
-            val maleVoices = engine.voices.orEmpty()
-                .filter { voice ->
-                    voice.locale.language == locale.language &&
-                        !voice.features.orEmpty().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) &&
-                        isMaleVoice(voice, engine)
-                }
-                .sortedWith(compareBy<Voice> { it.locale.country != locale.country }
-                    .thenBy { it.isNetworkConnectionRequired }
-                    .thenByDescending { it.quality }
-                    .thenBy { it.name })
-            if (maleVoices.none { engine.setVoice(it) == TextToSpeech.SUCCESS }) {
-                promise.reject("TTS_MALE_VOICE_UNAVAILABLE",
-                    "A male voice is not available for this language. Install a male voice in your phone's Text-to-speech settings and try again.")
+            if (!selectVoice(engine, locale)) {
+                promise.reject("TTS_LANGUAGE_UNAVAILABLE",
+                    "Voice for ${locale.displayLanguage} is not installed on this phone. Download it in your phone's Text-to-speech settings and try again.")
                 return@post
             }
             engine.setPitch(1.0f)
             engine.setSpeechRate(0.9f)
+            // A newer speak() supersedes this one: resolve the old promise
+            // quietly so its late tts-done can't stop the new reply's UI.
+            pendingSettle?.invoke(null, false)
+            val session = ++ttsSession
+            val prefix = "rn-tts-$session-"
+            val chunks = chunkText(text)
+            val lastId = "$prefix${chunks.size - 1}"
+            var settled = false
+            val settle: (String?, Boolean) -> Unit = settle@{ error, notify ->
+                synchronized(this) {
+                    if (settled) return@settle
+                    settled = true
+                    if (pendingSettle != null && ttsSession == session) pendingSettle = null
+                }
+                if (notify) sendEvent("tts-done", null)
+                if (error == null) promise.resolve(true)
+                else promise.reject("TTS_PLAYBACK_FAILED", error)
+            }
+            pendingSettle = settle
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) {}
-                override fun onDone(id: String?) {
-                    sendEvent("tts-done", null)
-                    promise.resolve(true)
+                override fun onDone(id: String?) { if (id == lastId) settle(null, true) }
+                override fun onStop(id: String?, interrupted: Boolean) {
+                    if (id?.startsWith(prefix) == true) settle(null, true)
                 }
+                @Deprecated("Deprecated in Java")
                 override fun onError(id: String?) {
-                    sendEvent("tts-done", null)
-                    promise.reject("TTS_PLAYBACK_FAILED", "Unable to play this voice. Check your connection and installed voice data.")
+                    if (id?.startsWith(prefix) == true) {
+                        settle("Unable to play this voice. Check your connection and installed voice data.", true)
+                    }
                 }
             })
-            if (engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "rn-tts") == TextToSpeech.ERROR) {
-                promise.reject("TTS_PLAYBACK_FAILED", "Unable to start voice playback.")
+            chunks.forEachIndexed { i, chunk ->
+                val mode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                if (engine.speak(chunk, mode, null, "$prefix$i") == TextToSpeech.ERROR) {
+                    engine.stop()
+                    settle("Unable to start voice playback.", true)
+                    return@post
+                }
             }
+        }
+    }
+
+    @ReactMethod
+    fun openTtsSettings(promise: Promise) {
+        mainHandler.post {
+            val activity = reactContext.currentActivity
+            val intents = listOf(
+                Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA),
+                Intent("com.android.settings.TTS_SETTINGS"),
+            )
+            val launched = intents.any { intent ->
+                try {
+                    if (activity != null) activity.startActivity(intent)
+                    else reactContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    true
+                } catch (_: Exception) { false }
+            }
+            promise.resolve(launched)
         }
     }
 

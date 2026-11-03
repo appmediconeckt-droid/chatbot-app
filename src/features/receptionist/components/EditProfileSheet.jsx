@@ -2,7 +2,8 @@
 // photo. Role, clinic, shift and staff ID stay with the doctor (Staff
 // Management), so they are not editable here. Email is the sign-in id.
 import React, { useEffect, useState } from 'react';
-import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import TextInput from '../../../components/TranslatedTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { launchImageLibrary } from 'react-native-image-picker';

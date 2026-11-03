@@ -15,7 +15,8 @@ import {
 import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
 import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
 import { getAppointmentVitals } from '../../../../utils/appointmentVitals';
-import { formatPhoneNumber } from '../../../../utils/countryCodes';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
+import displayLocale from '../../../../utils/displayLocale';
 
 const unwrapApiArray = (payload) => {
   if (Array.isArray(payload)) return payload;
@@ -28,7 +29,7 @@ const unwrapApiArray = (payload) => {
 const formatDate = (value) => {
   if (!value) return 'N/A';
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString(displayLocale('en-US'), { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
 const formatTime = (value) => {
@@ -162,7 +163,8 @@ const normalizeRecord = (raw, doctorName) => {
     __raw: raw,
     __appointmentSource: raw.__appointmentSource,
     id: pickFirst(a.id, a._id),
-    sortKey: new Date(createdAt || 0).getTime() || 0,
+    sortKey: visitTimestamp(a),
+    updatedKey: updatedTimestamp(a),
     date: formatDate(createdAt),
     time: formatTime(pickFirst(a.appointment_time, a.time, createdAt)),
     ...appointmentVitals(a),
@@ -191,6 +193,23 @@ const normalizeRecord = (raw, doctorName) => {
 
 const MISSING = ['N/A', 'Unknown Patient', '', undefined, null];
 
+// When a visit happened, for newest-first order. The appointment date often
+// has no time (midnight), so two visits on one day tied and either could be
+// taken as the latest: the booked time is added, and the record's own
+// timestamps break what is still tied.
+const visitTimestamp = (a) => {
+  const day = pickFirst(a.appointment_date, a.date, a.created_at, a.createdAt);
+  let ms = new Date(day || 0).getTime() || 0;
+  const time = /(\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?/i.exec(String(pickFirst(a.appointment_time, a.time, a.start_time, a.slot_time, '') || ''));
+  if (ms && time && /^\d{4}-\d{2}-\d{2}(T00:00(:00(\.0+)?)?Z?)?$/.test(String(day))) {
+    let hours = Number(time[1]);
+    if (time[3]) hours = (hours % 12) + (/^p/i.test(time[3]) ? 12 : 0);
+    ms += (hours * 60 + Number(time[2])) * 60000;
+  }
+  return ms;
+};
+const updatedTimestamp = (a) => Date.parse(pickFirst(a.updated_at, a.updatedAt, a.created_at, a.createdAt) || '') || 0;
+
 const buildPatients = (appointments, doctorName) => {
   const byPatient = new Map();
   // Account id / phone+name → the patient key they belong to, so a patient's
@@ -216,7 +235,7 @@ const buildPatients = (appointments, doctorName) => {
       if (MISSING.includes(existing[field]) && !MISSING.includes(details[field])) existing[field] = details[field];
     });
     existing.records.push(record);
-    existing.records.sort((x, y) => y.sortKey - x.sortKey);
+    existing.records.sort((x, y) => (y.sortKey - x.sortKey) || (y.updatedKey - x.updatedKey));
     existing.lastVisit = existing.records[0]?.date || record.date;
     existing.lastVisitKey = existing.records[0]?.sortKey || 0;
     // The blood group the clinic last recorded in vitals wins over the one on
@@ -243,17 +262,46 @@ const loadPatientAccounts = async () => {
     .filter((u) => u.id && u.fullName);
 };
 
+// Vitals of completed visits, by appointment id. Walk-in records
+// (/api/walkin-appointments) never carry vitals: the ones recorded for a
+// walk-in — by the receptionist or by the doctor during the consultation —
+// are kept with the visit history, the same list the receptionist reads.
+// Ids arrive as "walkin:<id>" / "walkin:walkin:<id>"; the last part is the id.
+const HISTORY_PAGE_SIZE = 50;
+const HISTORY_MAX_PAGES = 10;
+const loadHistoryVitals = async () => {
+  const byId = new Map();
+  const add = (row) => {
+    const vitals = row?.vitals || row?.prescription?.vitals;
+    if (!vitals || typeof vitals !== 'object' || Array.isArray(vitals) || !Object.keys(vitals).length) return;
+    const id = String(pickFirst(row?.prescription?.appointmentId, row?.appointmentId, row?.id) || '').split(':').pop();
+    if (id) byId.set(id, vitals);
+  };
+  for (let page = 1; page <= HISTORY_MAX_PAGES; page += 1) {
+    const { data } = await axiosInstance.get('/api/staff/patient-history', { params: { page, limit: HISTORY_PAGE_SIZE }, timeout: 15000 });
+    const rows = Array.isArray(data?.records) ? data.records : [];
+    rows.forEach(add);
+    if (rows.length < HISTORY_PAGE_SIZE || page * HISTORY_PAGE_SIZE >= (Number(data?.total) || 0)) break;
+  }
+  return byId;
+};
+
 export async function loadDoctorPatients() {
   const user = await getStoredDoctorUser();
   const doctorId = pickFirst(user?.doctor_id, user?.doctorId, user?.id, user?._id, user?.user_id, user?.userId);
   if (!doctorId) throw new Error('Doctor ID not found. Please login again.');
   const doctorName = pickFirst(user?.full_name, user?.fullName, user?.name);
   // Online and walk-in visits, like the web. One failing is not fatal.
-  const [responses, accountsResult] = await Promise.all([
+  const [responses, accountsResult, historyVitals] = await Promise.all([
     Promise.allSettled(['/api/appointments', '/api/walkin-appointments']
       .map((path) => axiosInstance.get(path, { params: { doctor_id: doctorId } }))),
     loadPatientAccounts().catch(() => []),
+    loadHistoryVitals().catch(() => new Map()),
   ]);
+  const withHistoryVitals = (a) => {
+    const vitals = historyVitals.get(String(pickFirst(a._id, a.id) || ''));
+    return vitals ? { ...a, vitals } : a;
+  };
   if (responses.every((r) => r.status === 'rejected')) throw responses[0].reason;
   const belongsToDoctor = (a) => {
     const raw = pickFirst(a.doctor_id, a.doctorId, a.doctor?.id, a.doctor?._id, a.counselor?._id, a.counselor?.id);
@@ -266,7 +314,9 @@ export async function loadDoctorPatients() {
     ? unwrapApiArray(responses[1].value.data).filter(belongsToDoctor) : [];
 
   // Visits of deleted patient accounts are not shown (same as the queue).
-  const patients = buildPatients([...online.map(a => ({ ...a, __appointmentSource: 'online' })), ...walkins.map(a => ({ ...a, __appointmentSource: 'walkin' }))].filter((a) => !isPatientAccountDeleted(a)), doctorName);
+  const patients = buildPatients([...online.map(a => ({ ...a, __appointmentSource: 'online' })), ...walkins.map(a => ({ ...a, __appointmentSource: 'walkin' }))]
+    .filter((a) => !isPatientAccountDeleted(a))
+    .map(withHistoryVitals), doctorName);
   // Patients booked through the app show their current account name. QR
   // bookings keep the name given at booking: walk-ins have no account at all,
   // and a patient whose visits are all QR bookings is left as booked.

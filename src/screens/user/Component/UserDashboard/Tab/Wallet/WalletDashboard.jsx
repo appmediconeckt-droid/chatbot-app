@@ -28,7 +28,8 @@ import PATIENT, {
   GRADIENT_DIRECTION,
 } from '../../../../../../theme/palette';
 
-import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
+import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
 const HISTORY_PAGE_SIZE = 5;
@@ -372,7 +373,7 @@ const WalletDashboard = ({ userData = {}, navigation, initialTab = 'add-money' }
   const formatDate = (dateString) => {
     if (!dateString) return '--';
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    return date.toLocaleDateString(displayLocale('en-IN'), { day: '2-digit', month: 'short' });
   };
 
   const stats = useMemo(() => {

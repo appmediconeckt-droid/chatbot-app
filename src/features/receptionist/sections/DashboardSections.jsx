@@ -150,6 +150,11 @@ export function OverviewSection({ data, profile, clinics, error, onView }) {
   );
 }
 
+// The shift chip as one phrase, so it translates as a whole ("Morning shift",
+// not "Morning" + "shift").
+const SHIFT_LABELS = { morning: 'Morning shift', afternoon: 'Afternoon shift', evening: 'Evening shift', night: 'Night shift', day: 'Day shift', general: 'General shift' };
+const shiftLabel = (shift) => SHIFT_LABELS[String(shift).trim().toLowerCase()] || `${shift} shift`;
+
 const tokenText = (row) => (row?.token != null && row.token !== '' ? String(row.token) : '--');
 
 // Entry point to the clinic LED / TV screen that shows this same queue.
@@ -336,6 +341,8 @@ export function DoctorSection({ data, clinics, error }) {
   const name = doctor.fullName || doctor.name || 'Doctor';
   const specialization = listText(doctor.specialization);
   const tiles = [
+    // Last item: the doctor's own words, shown in the app language (live
+    // translation). Location stays as written.
     ['Qualification', listText(doctor.qualification), 'school-outline', '#7C3AED', '#F1EAFE'],
     ['Experience', doctor.experience != null && doctor.experience !== '' ? `${doctor.experience} years` : '', 'ribbon-outline', '#D08A16', '#FFF4DF'],
     ['Consultation', listText(doctor.consultationMode), 'videocam-outline', '#3975C7', '#E8F1FF'],
@@ -354,7 +361,7 @@ export function DoctorSection({ data, clinics, error }) {
           <Avatar photo={profilePhotoOf(doctor)} name={name} size={92} />
         </View>
         <Text translate={false} style={s.profileName}>{/^dr\.?\s/i.test(name) ? name : `Dr. ${name}`}</Text>
-        <Text translate={false} style={s.profileRole}>{specialization || 'Specialization not provided'}</Text>
+        <Text style={s.profileRole}>{specialization || 'Specialization not provided'}</Text>
         <View style={s.profileChips}>
           <View style={s.activeChip}>
             <View style={s.activeDot} />
@@ -406,7 +413,7 @@ export function DoctorSection({ data, clinics, error }) {
             <Ionicons name="person-circle-outline" size={18} color={REC.primary} />
             <Text style={s.drAboutTitle}>About the doctor</Text>
           </View>
-          <Text translate={false} style={s.aboutText}>{doctor.aboutMe || doctor.bio}</Text>
+          <Text translate="live" style={s.aboutText}>{doctor.aboutMe || doctor.bio}</Text>
         </View>
       )}
 
@@ -487,7 +494,7 @@ export function ProfileSection({ profile, onProfileUpdated }) {
           {!!profile.shift && (
             <View style={s.shiftChip}>
               <Ionicons name="time-outline" size={13} color="#0369A1" />
-              <Text translate={false} style={s.shiftChipText}>{profile.shift} shift</Text>
+              <Text translate={false} style={s.shiftChipText}>{shiftLabel(profile.shift)}</Text>
             </View>
           )}
         </View>

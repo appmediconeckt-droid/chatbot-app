@@ -37,6 +37,7 @@ import useLanguageRender from '../../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getKeyboardLift, isButtonNavigation } from '../../../../utils/keyboardLift';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
+import CountryStateSelect from '../../../../components/common/CountryStateSelect';
 import {
   buildInternationalPhoneNumber,
   formatPhoneNumber,
@@ -1515,23 +1516,49 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </View>
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:city')}</Text>
-                    <TextInput
+                    <Text style={styles.formLabel}>{t('profile:country')}</Text>
+                    <CountryStateSelect
+                      kind="country"
                       style={styles.input}
-                      value={editFormData.address.city}
-                      onChangeText={(text) => handleEditFormChange("address.city", text)}
+                      textStyle={styles.selectText}
+                      value={editFormData.address.country}
+                      onChange={(country) => setEditFormData((prev) => ({
+                        ...prev,
+                        address: { ...prev.address, country, state: "", city: "" },
+                      }))}
+                      accentColor="#00652C"
                     />
                   </View>
                   <View style={styles.formGroup}>
                     <Text style={styles.formLabel}>{t('profile:state')}</Text>
-                    <TextInput
+                    <CountryStateSelect
+                      kind="state"
                       style={styles.input}
+                      textStyle={styles.selectText}
+                      country={editFormData.address.country}
                       value={editFormData.address.state}
-                      onChangeText={(text) => handleEditFormChange("address.state", text)}
+                      onChange={(state, fromList) => setEditFormData((prev) => ({
+                        ...prev,
+                        address: { ...prev.address, state, city: fromList ? "" : prev.address.city },
+                      }))}
+                      accentColor="#00652C"
                     />
                   </View>
                 </View>
                 <View style={styles.formRow}>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>{t('profile:city')}</Text>
+                    <CountryStateSelect
+                      kind="city"
+                      style={styles.input}
+                      textStyle={styles.selectText}
+                      country={editFormData.address.country}
+                      state={editFormData.address.state}
+                      value={editFormData.address.city}
+                      onChange={(text) => handleEditFormChange("address.city", text)}
+                      accentColor="#00652C"
+                    />
+                  </View>
                   <View style={styles.formGroup}>
                     <Text style={styles.formLabel}>{t('profile:pincode')}</Text>
                     <TextInput
@@ -1539,14 +1566,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       value={editFormData.address.pincode}
                       onChangeText={(text) => handleEditFormChange("address.pincode", text)}
                       keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:country')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.address.country}
-                      onChangeText={(text) => handleEditFormChange("address.country", text)}
                     />
                   </View>
                 </View>
@@ -2435,6 +2454,10 @@ const styles = StyleSheet.create({
     color: "#1e293b",
     borderWidth: 1,
     borderColor: "#e2e8f0",
+  },
+  selectText: {
+    fontSize: 15,
+    color: "#1e293b",
   },
   readonly: {
     color: "#64748b",

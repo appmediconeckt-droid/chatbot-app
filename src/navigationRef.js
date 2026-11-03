@@ -12,10 +12,7 @@ export const navigationRef = createNavigationContainerRef();
 let resetting = false;
 let pendingLoginReset = false;
 
-// The shared Login screen (every role signs in there), with Landing under it so
-// Back from Login lands on Landing instead of leaving a blank stack. Used after
-// logout and when a session ends — signing out must not drop the user on the
-// Sign Up flow (RoleSelector / *Signup), which is for new accounts.
+
 const LOGIN_STACK = { index: 1, routes: [{ name: 'Landing' }, { name: 'Login' }] };
 
 export const resetToLoginScreen = (navigation) => {

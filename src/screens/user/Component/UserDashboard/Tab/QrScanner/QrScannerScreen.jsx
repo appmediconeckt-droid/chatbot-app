@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
-import { Modal, NativeModules, Pressable, StatusBar, StyleSheet, Text, TurboModuleRegistry, View } from 'react-native';
+import { Modal, NativeModules, Pressable, StatusBar, StyleSheet, TurboModuleRegistry, View } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import PATIENT from '../../../../../../theme/palette';

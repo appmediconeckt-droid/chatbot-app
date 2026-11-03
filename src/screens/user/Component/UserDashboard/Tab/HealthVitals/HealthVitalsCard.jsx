@@ -3,7 +3,8 @@
 // values are local state, nothing is sent to the backend. Tap a tile to log
 // a new reading for that metric.
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../../../../components/TranslatedText';
 import { PATIENT } from '../../../../../../theme/palette';

@@ -67,9 +67,10 @@ export const PRESCRIPTION_DOCUMENT_CSS = `
 .prescription-followup span{font-size:13px;font-weight:700}
 .prescription-followup strong{font-size:12px;font-weight:400}
 .prescription-signoff{text-align:center;max-width:47%;display:grid;gap:0;justify-items:center;overflow-wrap:anywhere}
-.prescription-signature-space{height:46px;display:flex;align-items:flex-end;justify-content:center}
+.prescription-signature-space{height:auto;min-height:0;margin:0;padding:0;line-height:0;display:flex;align-items:flex-end;justify-content:center}
 .prescription-signature-space img{display:block;max-width:145px;max-height:46px;width:auto;height:auto;object-fit:contain;object-position:center bottom}
-.prescription-signoff>strong{margin-top:1px}
+.prescription-signoff>strong{margin-top:0}
+.prescription-signature-space+strong{margin-top:-8px}
 .prescription-signoff p{margin-top:2px}
 .prescription-signoff>strong{font-size:14px;color:var(--rx-blue)}
 .prescription-signoff p{font-size:11px;margin:0;line-height:1.4}

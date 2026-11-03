@@ -25,6 +25,7 @@ import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useIsFocused, useNavigation, useRoute } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { clearAllExceptDevicePreferences } from "../../../../../utils/authSession";
 import axios, { API_BASE_URL } from "../../../../../axiosConfig";
 import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
 import socketService from "../../../../../services/socketService";
@@ -76,6 +77,7 @@ import {
   getNotificationOnlyCallMessage,
   isNotificationOnlyCallResponse,
 } from "../../../../../utils/callRequestStatus";
+import displayLocale from '../../../../../utils/displayLocale';
 
 const normalizeCallType = (value) => {
   const type = String(value || '').trim().toLowerCase();
@@ -346,7 +348,7 @@ const friendlyDateLabel = (d) => {
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Tomorrow";
   if (diffDays === -1) return "Yesterday";
-  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  return date.toLocaleDateString(displayLocale('en-US'), { weekday: "short", month: "short", day: "numeric" });
 };
 
 const isSameDay = (a, b) => {
@@ -395,7 +397,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
   ].filter(Boolean);
 
   const requestedDate = apt.date
-    ? new Date(apt.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+    ? new Date(apt.date).toLocaleDateString(displayLocale('en-US'), { weekday: "long", month: "long", day: "numeric" })
     : "—";
   const requestedTime = apt.date
     ? new Date(apt.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -2004,13 +2006,13 @@ export default function CounselorDashboard() {
       }
       // The next account must not inherit this socket (its calls would be refused).
       try { socketService.disconnect(); } catch { /* ignore */ }
-      await AsyncStorage.clear();
+      await clearAllExceptDevicePreferences();
       setShowLogoutConfirm(false);
       resetToLoginScreen(navigation);
     } catch (error) {
       console.error("Logout Error:", error);
       try { socketService.disconnect(); } catch { /* ignore */ }
-      await AsyncStorage.clear();
+      await clearAllExceptDevicePreferences();
       setShowLogoutConfirm(false);
       resetToLoginScreen(navigation);
     }
@@ -2507,7 +2509,7 @@ export default function CounselorDashboard() {
       .filter((a) => a.status === "confirmed" && isSameDay(a.date, sessionSelectedDate))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    const selectedDateLabel = sessionSelectedDate.toLocaleDateString("en-US", {
+    const selectedDateLabel = sessionSelectedDate.toLocaleDateString(displayLocale('en-US'), {
       weekday: "short", month: "short", day: "numeric", year: "numeric",
     });
     const isTodaySelected = isSameDay(sessionSelectedDate, new Date());

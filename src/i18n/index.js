@@ -77,21 +77,26 @@ export const getUserLangStorageKey = (userId, role) => {
   return `userLang_${role}_${userId}`;
 };
 
-// Load language for a specific user
+// Load language for a specific user. Each account keeps its own language on
+// this device, whatever another role picked before it:
+// 1. a language picked on the Login screen before signing in wins;
+// 2. otherwise the account's own saved language;
+// 3. an account with none (first sign-in) takes the language the Login screen
+//    showed and keeps it from then on.
+// The result also becomes the app language, so the Login screen shows it
+// after sign-out.
 export const loadUserLanguage = async (userId, role) => {
+  if (!userId || !role) return i18n.language || 'en-US';
   const key = getUserLangStorageKey(userId, role);
-  const pendingLang = await AsyncStorage.getItem(PENDING_ACCOUNT_LANG_KEY);
-  if (pendingLang && userId && role) {
-    await AsyncStorage.multiRemove([PENDING_ACCOUNT_LANG_KEY]);
-    await AsyncStorage.setItem(key, pendingLang);
-    await i18n.changeLanguage(pendingLang);
-    return pendingLang;
-  }
-  const storedLang = await AsyncStorage.getItem(key);
-  // Fall back to the global app language, then to en-US
-  const globalLang = await AsyncStorage.getItem(LANG_STORAGE_KEY);
-  const langToUse = storedLang || globalLang || 'en-US';
-  await i18n.changeLanguage(langToUse);
+  const [[, pendingLang], [, storedLang], [, globalLang]] = await AsyncStorage.multiGet([
+    PENDING_ACCOUNT_LANG_KEY,
+    key,
+    LANG_STORAGE_KEY,
+  ]);
+  const langToUse = pendingLang || storedLang || globalLang || 'en-US';
+  if (pendingLang) await AsyncStorage.removeItem(PENDING_ACCOUNT_LANG_KEY);
+  await AsyncStorage.multiSet([[key, langToUse], [LANG_STORAGE_KEY, langToUse]]);
+  if (i18n.language !== langToUse) await i18n.changeLanguage(langToUse);
   return langToUse;
 };
 

@@ -1,3 +1,5 @@
+import displayLocale from './displayLocale';
+
 export const DEFAULT_PRESCRIPTION_VALID_DAYS = 30;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -39,7 +41,7 @@ export const getPrescriptionValidUntilDate = item => {
 export const formatPrescriptionDateTime = value => {
   const date = parseDate(value);
   if (!date) return '';
-  return date.toLocaleString('en-IN', {
+  return date.toLocaleString(displayLocale('en-IN'), {
     day: 'numeric',
     month: 'short',
     year: 'numeric',

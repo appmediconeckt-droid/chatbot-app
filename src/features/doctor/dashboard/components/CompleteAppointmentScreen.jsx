@@ -11,7 +11,8 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey, getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
-import useKeyboardLift from '../../../../hooks/useKeyboardLift';
+import useKeyboardLift from '../../../../hooks/useKeyboardLift';
+import displayLocale from '../../../../utils/displayLocale';
 
 const DURATION_TYPES = ['Days', 'Weeks', 'Months'];
 const TIMINGS = ['Morning', 'Afternoon', 'Evening', 'Night'];
@@ -336,7 +337,7 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
               <AppIcon name="calendar" size={16} color="#0D9488" strokeWidth={2.1} />
               <Text style={[styles.dateButtonText, !followUpDate && styles.datePlaceholder]}>
                 {followUpDate
-                  ? new Date(`${followUpDate}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+                  ? new Date(`${followUpDate}T00:00:00`).toLocaleDateString(displayLocale('en-US'), { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
                   : 'Select follow-up date'}
               </Text>
               <AppIcon name="chevron-down" size={15} color="#667085" strokeWidth={2.2} />

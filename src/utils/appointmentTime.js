@@ -1,3 +1,4 @@
+import displayLocale from './displayLocale';
 // Shared time helpers for the patient's appointment screens.
 
 // "2:33 PM" — always 12-hour, whatever the phone's 24-hour setting, so the
@@ -5,7 +6,7 @@
 export const formatTime12 = (value) => {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return date.toLocaleTimeString(displayLocale('en-US'), { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
 // The next clean slot boundary (:00, :15, :30, :45) at least `leadMinutes`

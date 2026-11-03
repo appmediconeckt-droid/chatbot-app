@@ -24,6 +24,7 @@ import CounselorGradientButton from '../../../../../../components/common/Counsel
 import GradientFill from '../../../../../../components/common/GradientFill';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
+import displayLocale from '../../../../../../utils/displayLocale';
 
 // Payout-domain statuses returned by the backend (`normalizeWithdrawalStatus`).
 const STATUS_META = {
@@ -52,7 +53,7 @@ const money = (v) =>
 
 const formatDate = (d) => {
   if (!d) return '--';
-  return new Date(d).toLocaleDateString('en-IN', {
+  return new Date(d).toLocaleDateString(displayLocale('en-IN'), {
     day: '2-digit',
     month: 'short',
     year: 'numeric',

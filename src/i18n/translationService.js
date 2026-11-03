@@ -17,7 +17,7 @@ const GOOGLE_LANG = {
 
 const protectTranslationTokens = (text) => {
   const tokens = [];
-  const protectedText = text.replace(/\{\{[^{}]+\}\}|\bHumaeli\b/g, (token) => {
+  const protectedText = text.replace(/\{\{[^{}]+\}\}|\bHumaeli\b/gi, (token) => {
     const marker = `__HUMAELI_${tokens.length}__`;
     tokens.push(token);
     return marker;
@@ -25,13 +25,44 @@ const protectTranslationTokens = (text) => {
 
   return {
     protectedText,
+    // Google reshapes the marker: "__HUMAELI__0__", "HUMAELI 0", or writes it
+    // in the target script ("__हुमैली_0__", "__هميلي_0__"), sometimes with
+    // native digits. All of them are put back.
     restore: (translatedText) =>
-      tokens.reduce(
-        (result, token, index) => result.replace(`__HUMAELI_${index}__`, token),
-        translatedText,
+      translatedText.replace(MARKER, (marker, latinIndex, otherIndex) =>
+        tokens[asciiNumber(latinIndex || otherIndex)] ?? marker,
       ),
   };
 };
+
+// Zero of each digit set Google may answer in (ASCII, Arabic, Persian/Urdu,
+// Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada,
+// Malayalam, Sinhala, Thai, Lao, Myanmar, Khmer, full-width).
+const DIGIT_ZEROS = [0x30, 0x660, 0x6f0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0x1040, 0x17e0, 0xff10];
+const hex = (code) => `\\u${code.toString(16).padStart(4, '0')}`;
+const DIGIT = `[${DIGIT_ZEROS.map((zero) => `${hex(zero)}-${hex(zero + 9)}`).join('')}]`;
+const asciiNumber = (digits) => Number(
+  Array.from(digits, (ch) => {
+    const code = ch.charCodeAt(0);
+    const zero = DIGIT_ZEROS.find((z) => code >= z && code <= z + 9);
+    return zero === undefined ? ch : String(code - zero);
+  }).join(''),
+);
+// "HUMAELI 0" / "__HUMAELI__0__", or underscores around a (transliterated or
+// dropped) name and the index: "__हुमैली_0__", "_0_".
+const MARKER = new RegExp(
+  `_*HUMAELI[\\s_]*(${DIGIT}+)_*|_+[^\\s_0-9]{0,24}[\\s_]*(${DIGIT}+)_+`,
+  'gi',
+);
+// Whatever is left of a marker Google broke beyond repair. The restored brand
+// ("Humaeli", "HUMAELI") is not mistaken for one.
+const MARKER_LEFTOVER = new RegExp(`HUMAELI[\\s_]*${DIGIT}|_HUMAELI|__|_\\s*${DIGIT}+\\s*_`);
+
+// A result with a broken marker, or without a protected token ({{n0}},
+// Humaeli), is never shown or cached.
+const isCleanTranslation = (source, translated) =>
+  (/_/.test(source) || !MARKER_LEFTOVER.test(translated)) &&
+  (source.match(/\{\{[^{}]+\}\}|\bHumaeli\b/gi) || []).every((token) => translated.includes(token));
 
 const extractTranslatedText = (payload) => {
   if (typeof payload === 'string') return payload;
@@ -123,18 +154,21 @@ class TranslationService {
     // Check in-memory cache
     if (this.cache.has(cacheKey)) {
       const cached = this.cache.get(cacheKey);
-      if (cached && cached.translatedText) {
+      if (cached && cached.translatedText && isCleanTranslation(text, cached.translatedText)) {
         return cached.translatedText;
       }
     }
 
-    // Check AsyncStorage cache
+    // Check AsyncStorage cache (entries saved with a broken marker are skipped
+    // and fetched again)
     try {
       const cached = await AsyncStorage.getItem(cacheKey);
       if (cached) {
         const data = JSON.parse(cached);
-        this.cache.set(cacheKey, data);
-        return data.translatedText;
+        if (data?.translatedText && isCleanTranslation(text, data.translatedText)) {
+          this.cache.set(cacheKey, data);
+          return data.translatedText;
+        }
       }
     } catch (err) {
       console.warn('Cache read error:', err);
@@ -194,6 +228,8 @@ class TranslationService {
       if (!translatedText) {
         throw new Error('Translation endpoint returned no translated text');
       }
+      // Never show or cache a result with a broken placeholder: keep English.
+      if (!isCleanTranslation(text, translatedText)) return text;
 
       const data = { translatedText: translatedText || text, timestamp: Date.now() };
 

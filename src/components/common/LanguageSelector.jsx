@@ -156,13 +156,13 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
             list reads the same in every app language — "English" never turns
             into "अंग्रेज़ी". */}
         <View style={[styles.langBadge, { backgroundColor: accent + '20', borderColor: accent + '40' }]}>
-          <Text translate={false} style={[styles.langBadgeText, { color: accent }]}>{initial}</Text>
+          <Text translate="never" style={[styles.langBadgeText, { color: accent }]}>{initial}</Text>
         </View>
 
         <View style={styles.langLabels}>
-          <Text translate={false} style={[styles.langNative, isActive && { color: accent }]}>{item.name || item.label}</Text>
+          <Text translate="never" style={[styles.langNative, isActive && { color: accent }]}>{item.name || item.label}</Text>
           {!!item.label && item.label !== item.name && (
-            <Text translate={false} style={styles.langEnglish}>{item.label}</Text>
+            <Text translate="never" style={styles.langEnglish}>{item.label}</Text>
           )}
         </View>
 
