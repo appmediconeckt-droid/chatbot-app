@@ -17,6 +17,7 @@ import {
 } from '../receptionistUi';
 import { apiError, fetchDisplayQueue, fetchDoctorDisplays } from '../receptionistApi';
 import { assignedClinicId, assignedDoctorId, clinicDisplayUrl, displayTime, selectDisplayClinic, statusLabel } from '../receptionistUtils';
+import { translatePhrase } from '../../../hooks/useSmartT';
 
 const clinicLabel = (row) => `${row.clinic?.name}${row.clinic?.room ? ` - Room ${row.clinic.room}` : ''}`;
 
@@ -160,7 +161,7 @@ export default function LedDisplaySection({ profile, clinic, onNavigate }) {
         <>
           <View style={s.sectionHead}>
             <Text style={s.sectionTitle}>Live preview</Text>
-            <LiveLabel warning={Boolean(queueError)} text={queue ? `Updated ${displayTime(queue.fetchedAt)}` : 'Connecting'} />
+            <LiveLabel warning={Boolean(queueError)} text={queue ? `${translatePhrase('Updated')} ${displayTime(queue.fetchedAt)}` : 'Connecting'} />
           </View>
 
           {/* Drawn like the TV in the waiting room: the same feed the LED shows. */}
@@ -176,7 +177,7 @@ export default function LedDisplaySection({ profile, clinic, onNavigate }) {
                   <View style={s.tvTop}>
                     <View style={s.flex}>
                       <Text translate={false} style={s.tvClinic} numberOfLines={1}>{selected?.clinic?.name || 'Clinic'}</Text>
-                      <Text translate={false} style={s.tvDoctor} numberOfLines={1}>{[doctorName, room && `Room ${room}`].filter(Boolean).join(' · ')}</Text>
+                      <Text translate={false} style={s.tvDoctor} numberOfLines={1}>{[doctorName, room && `${translatePhrase('Room')} ${room}`].filter(Boolean).join(' · ')}</Text>
                     </View>
                     <View style={s.tvLive}>
                       <View style={[s.tvLiveDot, !!queueError && s.tvLiveDotWarning]} />
@@ -227,7 +228,7 @@ export default function LedDisplaySection({ profile, clinic, onNavigate }) {
             <View style={s.tvNeck} />
             <View style={s.tvBase} />
           </View>
-          {!!queueError && <View style={s.gap}><AlertBox text={`${queueError}${queue ? ' Showing the last successful update.' : ''}`} /></View>}
+          {!!queueError && <View style={s.gap}><AlertBox text={`${queueError}${queue ? ` ${translatePhrase('Showing the last successful update.')}` : ''}`} /></View>}
 
           <Card style={s.actionsCard}>
             <CardHeading

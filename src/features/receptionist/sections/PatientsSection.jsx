@@ -23,6 +23,7 @@ import ConsultationPrescriptionDocument from '../../../screens/user/Component/Us
 import { downloadConsultationPrescriptionPdf } from '../../doctor/dashboard/utils/consultationPrescriptionPdf';
 import ListPagination, { LIST_PAGE_SIZE } from '../components/ListPagination';
 import { formatPhoneNumber } from '../../../utils/countryCodes';
+import { translatePhrase } from '../../../hooks/useSmartT';
 
 const EMPTY = { from: '', to: '', clinic_id: '', source: 'all', search: '' };
 const SOURCES = [['all', 'All records'], ['online', 'Online visits'], ['walkin', 'Walk-in visits'], ['prescription', 'Prescriptions']];
@@ -164,7 +165,7 @@ export default function PatientsSection({ refreshKey }) {
   }, [filters.search]);
   const doctorFor = (record) => prescriptionDoctorName(record?.prescription || {}, record?.doctor?.name || record?.doctor?.fullName || data?.doctor?.name || data?.doctor?.fullName);
   const closeSheet = () => { requestVersion.current += 1; setOpeningId(''); setSelected(null); setOpenPatient(null); };
-  const visitWhen = (row) => `${dateLabel(row.checkedDate)} · ${row.checkedAt ? displayTime(row.checkedAt) : row.appointmentTime || 'Time not recorded'}`;
+  const visitWhen = (row) => `${dateLabel(row.checkedDate)} · ${row.checkedAt ? displayTime(row.checkedAt) : row.appointmentTime || translatePhrase('Time not recorded')}`;
 
   const onPickDate = (event, date) => {
     const which = picker;

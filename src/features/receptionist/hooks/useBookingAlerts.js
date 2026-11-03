@@ -6,6 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { displaySystemNotification } from '../../../services/notificationService';
 import { clockLabel, dedupeRows, indiaToday, patientKey } from '../receptionistUtils';
+import { translatePhrase } from '../../../hooks/useSmartT';
 
 const MAX_SINGLE_ALERTS = 3;
 
@@ -16,12 +17,18 @@ const feedRows = (data) => dedupeRows([...(data?.currentPatients || []), ...(dat
   });
 
 const describe = (row) => {
-  const token = row.token != null && row.token !== '' ? `Token #${row.token}` : '';
-  const when = row.time ? `at ${clockLabel(row.time)}` : '';
-  const kind = row.source === 'walkin' ? 'Walk-in' : 'Online booking';
+  // System notifications are drawn outside the app's text components, so the
+  // words come from the dictionary here; the patient's name stays as written.
+  const token = row.token != null && row.token !== '' ? translatePhrase(`Token #${row.token}`) : '';
+  const when = row.time ? clockLabel(row.time) : '';
+  const walkin = row.source === 'walkin';
+  const kind = walkin ? translatePhrase('Walk-in') : translatePhrase('Online booking');
+  const name = row.patientName || translatePhrase('Patient');
   return {
-    title: row.emergency ? `🚨 Emergency: ${row.patientName || 'Patient'}` : `New ${kind.toLowerCase()}: ${row.patientName || 'Patient'}`,
-    body: [kind, token, when].filter(Boolean).join(' · ') || 'Added to today’s queue',
+    title: row.emergency
+      ? `🚨 ${translatePhrase('Emergency')}: ${name}`
+      : `${walkin ? translatePhrase('New walk-in') : translatePhrase('New online booking')}: ${name}`,
+    body: [kind, token, when].filter(Boolean).join(' · ') || translatePhrase('Added to today’s queue'),
   };
 };
 

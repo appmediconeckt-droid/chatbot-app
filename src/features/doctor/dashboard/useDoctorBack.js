@@ -1,16 +1,5 @@
 // Android back for the doctor dashboard.
-//
-// The dashboard swaps whole screens in and out with state (not a navigator),
-// and several of those screens have their own inner pages (Settings →
-// Privacy & Security → Change Password, Follow-ups → New Follow-up, Staff →
-// Create Staff, ...). With one BackHandler per screen, the dashboard's
-// listener — re-added on every state change, so always the newest and first
-// to run — jumped straight to Home and inner pages never got a say.
-//
-// Instead the dashboard owns one registry. A screen with inner pages calls
-// useDoctorBack(handler); on back press the dashboard asks the most recently
-// mounted (innermost) handler first. A handler returns true when it closed one
-// of its own pages, or false to let the screen above it handle back.
+
 import { createContext, useContext, useEffect, useLayoutEffect, useRef } from 'react';
 import { BackHandler } from 'react-native';
 

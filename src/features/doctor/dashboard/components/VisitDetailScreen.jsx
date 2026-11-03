@@ -60,6 +60,8 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
 
   const normalizedStatus = String(record.status || '').toLowerCase() === 'complete' ? 'completed' : String(record.status || '').toLowerCase();
   const statusTone = STATUS_TONES[normalizedStatus] || { fg: '#475467', bg: '#F2F4F7' };
+  // "Skipped" (moved to Next) is a queue state, not something to show here.
+  const showStatus = isSet(record.status) && normalizedStatus !== 'skipped';
   const visitTiles = [
     { icon: 'calendar', label: 'Date', value: record.date },
     { icon: 'clock', label: 'Time', value: record.time },
@@ -109,7 +111,7 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
               </View>
             )}
           </View>
-          {(isSet(patient.phone) || isSet(record.status)) && (
+          {(isSet(patient.phone) || showStatus) && (
             <View style={s.heroChips}>
               {isSet(patient.phone) && (
                 <View style={s.heroChip}>
@@ -117,7 +119,7 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
                   <Text translate={false} selectable style={s.heroChipText}>{unbreakable(patient.phone)}</Text>
                 </View>
               )}
-              {isSet(record.status) && (
+              {showStatus && (
                 <View style={[s.statusChip, { backgroundColor: statusTone.bg }]}>
                   <View style={[s.statusDot, { backgroundColor: statusTone.fg }]} />
                   <Text style={[s.statusChipText, { color: statusTone.fg }]}>{titleCase(normalizedStatus)}</Text>

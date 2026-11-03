@@ -135,7 +135,8 @@ const collectPagePhrases = () => {
         if (calleeName === 'Alert.alert' || /^(showToast|setError|setMessage|setNotice|setInfo|setWarning|setHint|setStatusText)$/.test(calleeName || '')) {
           addMessageArgs(nodePath.node.arguments);
         }
-        if (nodePath.node.callee.type !== 'Identifier' || nodePath.node.callee.name !== 't') return;
+        // t('Phrase') and translatePhrase('Phrase') (text outside components).
+        if (nodePath.node.callee.type !== 'Identifier' || !['t', 'translatePhrase'].includes(nodePath.node.callee.name)) return;
         const argument = nodePath.node.arguments[0];
         if (argument?.type === 'StringLiteral') add(argument.value);
         const fallback = nodePath.node.arguments[1];

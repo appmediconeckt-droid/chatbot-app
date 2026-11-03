@@ -135,8 +135,8 @@ function PatientVitalsView({ patient }) {
       <View style={s.vitalsHeader}>
         <View style={s.vitalsIcon}><Ionicons name="pulse" size={16} color={REC.primary} /></View>
         <View style={s.flex}>
-          <Text style={s.vitalsTitle}>Patient vitals</Text>
-          <Text style={s.vitalsSub}>{recorded.length ? `${recorded.length} ${recorded.length === 1 ? 'reading' : 'readings'} recorded` : 'No measurements recorded yet'}</Text>
+          <Text style={s.vitalsTitle}>Patient's vital signs</Text>
+          <Text style={s.vitalsSub}>{recorded.length ? (recorded.length === 1 ? `${recorded.length} reading recorded` : `${recorded.length} readings recorded`) : 'No measurements recorded yet'}</Text>
         </View>
       </View>
       {recorded.length > 0 ? (
@@ -154,7 +154,8 @@ function PatientVitalsView({ patient }) {
               <Text style={s.vitalTileLabel}>{label}</Text>
               <Text translate={false} style={s.vitalTileValue}>
                 {String(values[key]).trim()}
-                {!!unit && <Text translate={false} style={s.vitalTileUnit}>{/^[/°%]/.test(unit) ? unit : ` ${unit}`}</Text>}
+                {/* Units (mmHg, bpm, kg) are written the same in every language. */}
+                {!!unit && <Text translate="never" style={s.vitalTileUnit}>{/^[/°%]/.test(unit) ? unit : ` ${unit}`}</Text>}
               </Text>
             </View>
           ))}
@@ -582,7 +583,7 @@ function PatientDetailsView({ patient, clinics, doctorName }) {
           ['Date', present(patient.date) ? dateLabel(patient.date) : ''],
           ['Time', patient.time ? clockLabel(patient.time) : ''],
           ['Booked via', patient.source === 'walkin' ? 'Walk-in' : 'Online booking'],
-          ['Status', patient.status ? statusLabel(patient.status) : ''],
+          ['Status', patient.status && !/^skipped$/i.test(patient.status) ? statusLabel(patient.status) : ''],
         ]} />
       </InfoSection>
 
@@ -635,7 +636,7 @@ export function PatientDetailsSheet({ patient: appointment, clinics, doctorName,
                 </Pressable>
               </View>
               <View style={[s.row, s.wrap]}>
-                {appointmentStatuses(patient).map((status) => <Badge key={status} value={status} />)}
+                {appointmentStatuses(patient).filter((status) => status !== 'skipped').map((status) => <Badge key={status} value={status} />)}
                 {patient.emergency && <Badge emergency />}
                 <Text translate={false} style={s.metaText}>Token {patient.token ?? '--'}</Text>
               </View>

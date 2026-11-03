@@ -24,6 +24,7 @@ import humaeliIcon from '../../image/HumaeliIcon.png';
 import LanguageSelector from '../../components/common/LanguageSelector';
 import { LANGUAGES, loadUserLanguage } from '../../i18n';
 import { useLanguageContext } from '../../contexts/LanguageContext';
+import { translatePhrase } from '../../hooks/useSmartT';
 
 // `tab`: shown in the bottom bar (the everyday sections); the rest stay
 // in the side menu.
@@ -226,7 +227,7 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
         {/* No clinic / refresh bar: the receptionist has one assigned clinic,
             and the data refreshes by itself (every 10–15s) and on pull-down. */}
         <AlertBox text={accountError} />
-        {!!error && <AlertBox text={`${error}${data ? ' The displayed data may be out of date.' : ''}`} />}
+        {!!error && <AlertBox text={`${error}${data ? ` ${translatePhrase('The displayed data may be out of date.')}` : ''}`} />}
 
         {profile ? renderSection() : !accountError && (
           <View style={s.loadingAccount}><Text style={s.contextHint}>Loading your receptionist account...</Text></View>

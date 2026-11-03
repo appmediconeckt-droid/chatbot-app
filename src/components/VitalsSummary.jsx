@@ -4,7 +4,7 @@ import Text from './TranslatedText';
 import displayLocale from '../utils/displayLocale';
 import { getAppointmentVitals, hasAppointmentVitals, hasVitalValue, VITAL_FIELDS } from '../utils/appointmentVitals';
 
-export default function VitalsSummary({ appointment, title = 'Patient vitals' }) {
+export default function VitalsSummary({ appointment, title = "Patient's vital signs" }) {
   if (!hasAppointmentVitals(appointment)) return null;
   const vitals = getAppointmentVitals(appointment);
   const recordedDate = new Date(vitals.recorded_at);

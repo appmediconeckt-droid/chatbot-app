@@ -18,6 +18,7 @@ import { useReceptionistVitals } from '../ReceptionistVitalsContext';
 import { formatPhoneNumber } from '../../../utils/countryCodes';
 import QueueSlotHeader from '../../../components/common/QueueSlotHeader';
 import { groupQueueBySession, orderBySession, useDoctorAvailability } from '../../../utils/queueSlots';
+import { translatePhrase } from '../../../hooks/useSmartT';
 
 // Every booking the dashboard feed knows about, each once.
 const allRows = (data) => dedupeRows([...(data?.currentPatients || []), ...(data?.waiting || []), ...(data?.appointments || [])]);
@@ -99,8 +100,8 @@ function CurrentCheckups({ data, clinics, onView }) {
         <View style={s.inline}>
           <Ionicons name="time-outline" size={15} color="#5B7F73" />
           <Text translate={false} style={s.footerText}>
-            {row.timing?.startedAt ? `Started ${displayTime(row.timing.startedAt)}` : 'Awaiting checkup'}
-            {row.timing?.state === 'paused' ? ' / Paused' : ''}
+            {row.timing?.startedAt ? `${translatePhrase('Started')} ${displayTime(row.timing.startedAt)}` : 'Awaiting checkup'}
+            {row.timing?.state === 'paused' ? ` / ${translatePhrase('Paused')}` : ''}
           </Text>
         </View>
         <Pressable onPress={() => onView(row)} style={s.textButton} hitSlop={6}>
@@ -192,7 +193,7 @@ function NowServingCard({ data, groups, clinics, onView }) {
   const nextRows = waiting.slice(0, 4);
   const timing = data.timing;
   const wait = timing?.estimatedWaitLabel || (timing?.estimatedWaitMinutes != null ? `${timing.estimatedWaitMinutes} min` : '');
-  const breakNote = [timing?.breakInfo?.headline, timing?.breakInfo?.expectedStart && `Expected start ${timing.breakInfo.expectedStart}`]
+  const breakNote = [timing?.breakInfo?.headline, timing?.breakInfo?.expectedStart && `${translatePhrase('Expected start')} ${timing.breakInfo.expectedStart}`]
     .filter(Boolean).join(' · ');
   const stats = [
     { label: 'Waiting', value: data.summary?.waiting ?? waiting.length, icon: 'time-outline', color: '#C27C0E' },
@@ -227,8 +228,8 @@ function NowServingCard({ data, groups, clinics, onView }) {
               </Text>
               <Text translate={false} style={s.serveName} numberOfLines={1}>{current.patientName}</Text>
               <Text translate={false} style={s.serveMeta} numberOfLines={1}>
-                {current.timing?.startedAt ? `Started ${displayTime(current.timing.startedAt)}` : clinicName(clinics, current.clinicId)}
-                {current.timing?.state === 'paused' ? ' · Paused' : ''}
+                {current.timing?.startedAt ? `${translatePhrase('Started')} ${displayTime(current.timing.startedAt)}` : clinicName(clinics, current.clinicId)}
+                {current.timing?.state === 'paused' ? ` · ${translatePhrase('Paused')}` : ''}
               </Text>
               <Pressable onPress={() => onView(current)} style={s.serveLink} hitSlop={6} accessibilityRole="button">
                 <Text style={s.textButtonText}>View details</Text>
@@ -363,10 +364,6 @@ export function DoctorSection({ data, clinics, error }) {
         <Text translate={false} style={s.profileName}>{/^dr\.?\s/i.test(name) ? name : `Dr. ${name}`}</Text>
         <Text style={s.profileRole}>{specialization || 'Specialization not provided'}</Text>
         <View style={s.profileChips}>
-          <View style={s.activeChip}>
-            <View style={s.activeDot} />
-            <Text style={s.activeChipText}>Your care team</Text>
-          </View>
           <View style={s.shiftChip}>
             <Ionicons name="business-outline" size={13} color="#0369A1" />
             <Text translate={false} style={s.shiftChipText}>{clinics.length} {clinics.length === 1 ? 'clinic' : 'clinics'}</Text>

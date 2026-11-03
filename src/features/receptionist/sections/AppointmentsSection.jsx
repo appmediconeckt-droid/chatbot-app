@@ -16,6 +16,7 @@ import {
 import { cancelStaffAppointment, apiError, fetchStaffAppointments } from '../receptionistApi';
 import { APPOINTMENT_STATUSES, appointmentStatuses, dateLabel, indiaToday, patientKey, statusLabel } from '../receptionistUtils';
 import ListPagination, { LIST_PAGE_SIZE } from '../components/ListPagination';
+import { translatePhrase } from '../../../hooks/useSmartT';
 
 const EMPTY_FILTERS = { from: '', to: '', status: 'all', search: '' };
 const toKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -136,7 +137,9 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
 
   const cancelAppointment = (row) => {
     if (cancelBusy || !canCancel) return;
-    Alert.alert('Cancel appointment', `Cancel the appointment for ${row.patientName}?`, [
+    // The patient's name stays as written; the question comes from the dictionary.
+    Alert.alert('Cancel appointment', `${translatePhrase('Cancel this appointment?')}
+${row.patientName}`, [
       { text: 'Keep', style: 'cancel' },
       {
         text: 'Cancel appointment',
@@ -226,7 +229,7 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
         <View style={[s.twoCol, isWide && s.datesWide]}>
           <View style={s.flex}>
             <SelectField
-              label="From date"
+              label="Start date"
               icon="calendar-outline"
               valueLabel={filters.from ? dateLabel(filters.from) : 'Any date'}
               active={Boolean(filters.from)}
@@ -236,7 +239,7 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
           </View>
           <View style={s.flex}>
             <SelectField
-              label="To date"
+              label="End date"
               icon="calendar-outline"
               valueLabel={filters.to ? dateLabel(filters.to) : 'Any date'}
               active={Boolean(filters.to)}

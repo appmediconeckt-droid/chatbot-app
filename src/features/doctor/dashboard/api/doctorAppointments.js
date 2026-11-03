@@ -1,7 +1,6 @@
 // Port of the web doctor dashboard's appointment layer
 // (chatbot/src/Component/DoctorDashboard/appointmentFeed.js + the helpers at
-// the top of Dashboard/DoctorDashboard.jsx). Same endpoints, params, status
-// normalization and payloads, so both clients read and write identically.
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isPrepaidAppointmentVisible } from '../../../../utils/appointmentPaymentVisibility';
 import axiosInstance from '../../../../axiosConfig';
