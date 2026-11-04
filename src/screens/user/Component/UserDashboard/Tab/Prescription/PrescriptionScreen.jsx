@@ -9,7 +9,6 @@ import { appointmentToDocument } from '../../../../../../utils/consultationPresc
 import {
   ActivityIndicator,
   Alert,
-  Image,
   RefreshControl,
   ScrollView,
   StatusBar,
@@ -180,14 +179,6 @@ const formatDate = value => {
   });
 };
 
-const formatSize = bytes => {
-  const size = Number(bytes);
-  if (!size) return 'PDF document';
-  return size < 1024 * 1024
-    ? `${Math.ceil(size / 1024)} KB`
-    : `${(size / (1024 * 1024)).toFixed(1)} MB`;
-};
-
 const getMedicines = item => {
   const medicines = item?.medicines || item?.medicine || item?.drugs || [];
   return Array.isArray(medicines) ? medicines : [];
@@ -211,6 +202,14 @@ const SOURCE_BADGES = {
   },
 };
 
+
+// Where the patient-photo check of a psychiatrist prescription stands.
+const PHOTO_STATUS = {
+  verified: { label: 'Verified', icon: 'shield-checkmark', bg: '#DCFCE7', text: '#166534' },
+  pending: { label: 'Under review', icon: 'time-outline', bg: '#FEF3C7', text: '#92400E' },
+  rejected: { label: 'Photo rejected', icon: 'close-circle-outline', bg: '#FEE2E2', text: '#B91C1C' },
+  photo_required: { label: 'Photo needed', icon: 'camera-outline', bg: '#F1F5F9', text: '#475569' },
+};
 
 const isCompletedAppointment = appt =>
   [appt?.status, appt?.appointment_status, appt?.queue_status]
@@ -653,15 +652,21 @@ const PrescriptionScreen = () => {
     );
   };
 
+  // Psychiatrist (chat) prescription — the same compact two-row card as a
+  // doctor's: who wrote it and when, then the medicine count, the photo
+  // check and the actions. The full prescription opens with View (it needs
+  // the patient's photo first).
   const renderPrescription = (item, kind = 'psychiatrist') => {
     const id = getId(item);
+    const badge = SOURCE_BADGES[kind] || SOURCE_BADGES.psychiatrist;
     const medicines = getMedicines(item);
-    const photoUrl = toUrl(
-      item?.patientPhotoUrl || item?.photoUrl || item?.patientPhoto,
+    const medicineCount = `${medicines.length} medicine${medicines.length === 1 ? '' : 's'}`;
+    const hasPhoto = Boolean(
+      item?.hasPatientPhoto || item?.patientPhotoUrl || item?.photoUrl || item?.patientPhoto,
     );
     const verificationStatus =
-      item?.verificationStatus ||
-      (item?.hasPatientPhoto ? 'pending' : 'photo_required');
+      item?.verificationStatus || (item?.hasPatientPhoto ? 'pending' : 'photo_required');
+    const status = PHOTO_STATUS[verificationStatus] || PHOTO_STATUS.photo_required;
     const doctorName =
       item?.psychiatrist?.fullName ||
       item?.psychiatrist?.name ||
@@ -669,115 +674,83 @@ const PrescriptionScreen = () => {
       item?.consultant?.name ||
       item?.doctorName ||
       (kind === 'psychiatrist' ? 'Psychiatrist' : 'Doctor');
+    const problem = item?.patientProblem || item?.problem || item?.diagnosis || '';
+    const viewing = viewingId === id;
+    const uploading = uploadingId === id;
 
     return (
-      <View
+      <TouchableOpacity
         key={id || item.createdAt}
+        activeOpacity={0.85}
+        onPress={() => viewPrescription(item)}
+        disabled={viewing}
         style={[
           styles.card,
+          styles.cardCompact,
           kind === 'psychiatrist' ? styles.cardPsychiatrist : styles.cardDoctor,
         ]}
       >
         <View style={styles.cardHeader}>
-          <View style={styles.rxIcon}>
-            <Ionicons name="document-text-outline" size={21} color="#006B2C" />
-          </View>
-          <View style={styles.cardTitleWrap}>
-            <View style={styles.cardTitleRow}>
-              <Text style={[styles.cardTitle, styles.cardTitleShrink]} numberOfLines={1}>
-                Prescription
-              </Text>
-              <SourceBadge kind={kind} />
-            </View>
-            <Text style={styles.cardMeta} numberOfLines={1}>
-              {doctorName} • {formatDate(item?.createdAt || item?.issuedAt)}
+          <View style={[styles.doctorAvatar, { backgroundColor: badge.bg }]}>
+            <Text translate={false} style={[styles.doctorAvatarText, { color: badge.text }]}>
+              {getDoctorInitials(doctorName)}
             </Text>
           </View>
+          <View style={styles.cardTitleWrap}>
+            <Text translate={false} style={[styles.cardTitle, styles.doctorNameText]} numberOfLines={1}>
+              {doctorName}
+            </Text>
+            <Text translate={false} style={styles.cardMeta} numberOfLines={1}>
+              {formatDate(item?.createdAt || item?.issuedAt)}
+              {problem ? ` • ${problem}` : ''}
+            </Text>
+          </View>
+          <SourceBadge kind={kind} />
         </View>
 
-        {!!photoUrl && (
-          <Image
-            source={{ uri: photoUrl }}
-            style={styles.patientPhoto}
-            resizeMode="cover"
-          />
-        )}
-
-        <Text style={styles.problemLabel}>Patient problem</Text>
-        <Text style={styles.problemText}>
-          {item?.patientProblem ||
-            item?.problem ||
-            item?.diagnosis ||
-            'Not specified'}
-        </Text>
-
-        <Text style={styles.fileMeta}>
-          {item?.fileName || 'Prescription.pdf'} • {formatSize(item?.fileSize)}
-        </Text>
         {verificationStatus === 'rejected' && !!item?.rejectionReason && (
-          <Text style={styles.rejectionText}>
+          <Text style={styles.rejectionText} numberOfLines={2}>
             Photo rejected: {item.rejectionReason}
           </Text>
         )}
 
-        <View style={styles.medicineList}>
-          {medicines.length > 0 ? (
-            medicines.map((medicine, index) => (
-              <View key={`${id}-medicine-${index}`} style={styles.medicineRow}>
-                <Text style={styles.medicineName}>
-                  {index + 1}.{' '}
-                  {medicine.name || medicine.medicineName || 'Medicine'}
-                </Text>
-                <Text style={styles.medicineMeta}>
-                  {[
-                    medicine.dosage,
-                    medicine.timeOfDay,
-                    medicine.whenToTake,
-                    medicine.duration,
-                  ]
-                    .filter(Boolean)
-                    .join(' • ')}
-                </Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyMedicine}>No medicines listed.</Text>
-          )}
-        </View>
-
-        {!!item?.instructions && (
-          <Text style={styles.instructions}>{item.instructions}</Text>
-        )}
-
-        <View style={styles.actions}>
+        <View style={styles.doctorFooter}>
+          <View style={styles.footerInfo}>
+            <View style={styles.medCountWrap}>
+              <Ionicons name="medical-outline" size={13} color="#64748B" />
+              <Text style={styles.medCount}>{medicineCount}</Text>
+            </View>
+            <View style={[styles.statusChip, { backgroundColor: status.bg }]}>
+              <Ionicons name={status.icon} size={12} color={status.text} />
+              <Text style={[styles.statusChipText, { color: status.text }]}>{status.label}</Text>
+            </View>
+          </View>
           <TouchableOpacity
-            style={styles.secondaryBtn}
             onPress={() => uploadPhoto(item)}
-            disabled={uploadingId === id}
+            disabled={uploading}
+            hitSlop={6}
+            style={styles.photoBtn}
+            accessibilityLabel={hasPhoto ? 'Change photo' : 'Upload photo'}
           >
-            {uploadingId === id ? (
+            {uploading ? (
               <ActivityIndicator size="small" color="#006B2C" />
             ) : (
-              <Ionicons name="camera-outline" size={17} color="#006B2C" />
+              <Ionicons name="camera-outline" size={15} color="#006B2C" />
             )}
-            <Text style={styles.secondaryBtnText}>
-              {photoUrl ? 'Change photo' : 'Upload photo'}
-            </Text>
+            <Text style={styles.photoBtnText}>{hasPhoto ? 'Change' : 'Upload photo'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.secondaryBtn}
-            onPress={() => viewPrescription(item)}
-            disabled={viewingId === id}
-          >
-            {viewingId === id ? (
-              <ActivityIndicator size="small" color="#006B2C" />
+          <View style={[styles.viewLink, { backgroundColor: badge.bg }]}>
+            {viewing ? (
+              <ActivityIndicator size="small" color={badge.text} />
             ) : (
-              <Ionicons name="eye-outline" size={17} color="#006B2C" />
+              <>
+                <Text style={[styles.viewLinkText, { color: badge.text }]}>View</Text>
+                <Ionicons name="chevron-forward" size={14} color={badge.text} />
+              </>
             )}
-            <Text style={styles.secondaryBtnText}>View</Text>
-          </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -991,6 +964,7 @@ const PrescriptionScreen = () => {
           }}
           showThemePicker={false}
           headerGradient={PATIENT_GRADIENT}
+          profileSource="self"
         />
       )}
       {!!openDoctorRx && (
@@ -1109,7 +1083,30 @@ const styles = StyleSheet.create({
   },
   headerCountValue: { color: '#006B2C', fontSize: 16, fontWeight: '900', lineHeight: 19 },
   headerCountLabel: { color: '#4B7A5C', fontSize: 10, fontWeight: '700' },
-  content: { paddingHorizontal: 16, paddingBottom: 120 },
+  // A little room between the Doctor / Psychiatrist switch and the first card.
+  content: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 120 },
+  statusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  statusChipText: { fontSize: 11.5, fontWeight: '800' },
+  photoBtn: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#B7E4C7',
+    backgroundColor: '#FFFFFF',
+  },
+  photoBtnText: { color: '#006B2C', fontSize: 12, fontWeight: '800' },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
@@ -1121,7 +1118,6 @@ const styles = StyleSheet.create({
   cardDoctor: { borderLeftWidth: 4, borderLeftColor: '#01CE54' },
   cardPsychiatrist: { borderLeftWidth: 4, borderLeftColor: '#01CE54' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sourceBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1191,57 +1187,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   viewLinkText: { fontSize: 13, fontWeight: '900' },
-  rxIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#EAF8EF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   cardTitleWrap: { flex: 1 },
   cardTitle: { color: '#0F172A', fontSize: 16, fontWeight: '900' },
-  cardTitleShrink: { flexShrink: 1 },
-  cardMeta: { color: '#64748B', fontSize: 12, fontWeight: '600', marginTop: 2 },
-  patientPhoto: {
-    width: '100%',
-    height: 160,
-    borderRadius: 12,
-    backgroundColor: '#E2E8F0',
-    marginTop: 12,
-  },
-  problemLabel: {
-    color: '#006B2C',
-    fontSize: 12,
-    fontWeight: '900',
-    marginTop: 14,
-    textTransform: 'uppercase',
-  },
-  problemText: { color: '#1F2937', fontSize: 14, lineHeight: 20, marginTop: 4 },
-  medicineList: { marginTop: 12, gap: 8 },
-  medicineRow: {
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  medicineName: { color: '#111827', fontSize: 14, fontWeight: '800' },
-  medicineMeta: {
-    color: '#64748B',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  emptyMedicine: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
-  instructions: {
-    color: '#475569',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 12,
-    fontWeight: '600',
-  },
-  fileMeta: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 9 },
+  cardMeta: { color: '#64748B', fontSize: 12, fontWeight: '600', marginTop: 2 },
   rejectionText: {
     color: '#B91C1C',
     backgroundColor: '#FEF2F2',
@@ -1250,23 +1198,7 @@ const styles = StyleSheet.create({
     marginTop: 9,
     fontSize: 12,
     fontWeight: '700',
-  },
-  actions: { flexDirection: 'row', gap: 10, marginTop: 14, flexWrap: 'wrap' },
-  secondaryBtn: {
-    flex: 1,
-    minWidth: 135,
-    minHeight: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#B7E4C7',
-    backgroundColor: '#F0FDF4',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-  },
-  secondaryBtnText: { color: '#006B2C', fontSize: 12.5, fontWeight: '800' },
+  },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',

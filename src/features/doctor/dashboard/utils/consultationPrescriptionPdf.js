@@ -11,7 +11,7 @@ import { Alert, NativeModules } from 'react-native';
 import RNFS from 'react-native-fs';
 import { buildSimplePdf, saveAndOpenPdf } from './prescriptionPdf';
 import { medicineTiming, medicineDuration, buildConsultationDocumentHtml, followUpText } from '../../../../utils/consultationPrescriptionDocument';
-import { withBookingQr } from '../../../../utils/prescriptionBookingQr';
+import { withPrescriptionPdfAssets } from '../../../../utils/prescriptionBookingQr';
 export { medicineTiming, medicineDuration } from '../../../../utils/consultationPrescriptionDocument';
 
 const str = value => value === null || value === undefined ? '' : String(value);
@@ -39,7 +39,7 @@ export async function downloadConsultationPrescriptionPdf(data = {}) {
     ].filter(Boolean).join('_');
     const nativePdf = NativeModules.PrescriptionPrint;
     if (nativePdf?.createPdf) {
-      const path = await nativePdf.createPdf(buildConsultationDocumentHtml(await withBookingQr(data)), fileName);
+      const path = await nativePdf.createPdf(buildConsultationDocumentHtml(await withPrescriptionPdfAssets(data)), fileName);
       if (path && typeof path === 'string' && await RNFS.exists(path)) {
         // Re-downloading the same visit replaces its earlier copy.
         await saveAndOpenPdf(path, fileName, { replace: true });

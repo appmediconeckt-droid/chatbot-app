@@ -148,12 +148,23 @@ export const doctorRxToDocument = (rx = {}) => {
     doctorProfile: rx.doctorProfile || rx.psychiatrist || rx.doctor || { fullName: rx.doctorName, qualification: rx.qualification, specialization: rx.specialization },
   });
   const data = { ...base, ...rx.document };
+  // A psychiatrist's prescription is a consultant page: blue, and no booking QR.
+  const consultant = rx.kind === 'psychiatrist';
+  // The patient's profile (rx.patientProfile) fills what the record lacks.
+  const profile = rx.patientProfile || {};
+  const recordedGender = data.gender && data.gender !== '—' ? data.gender : '';
   return {
     ...data,
+    age: listText(data.age) || listText(profile.age),
+    gender: recordedGender || profile.gender || data.gender,
+    weight: listText(data.weight) || listText(profile.weight),
+    ...(consultant ? { variant: 'consultant', doctorId: '', bookingQr: '', themeId: rx.themeId || data.themeId } : {}),
     clinic: data.clinic || listText(rx.clinic?.name),
     address: data.address || listText(rx.clinic?.location),
     doctorPhone: formatPhoneNumber(data.doctorPhone || rx.clinic?.phone, rx.clinic?.phoneCountryCode),
-    phone: formatPhoneNumber(data.phone, rx.patient?.phoneCountryCode || rx.phoneCountryCode),
+    phone: data.phone
+      ? formatPhoneNumber(data.phone, rx.patient?.phoneCountryCode || rx.phoneCountryCode)
+      : formatPhoneNumber(profile.phoneNumber, profile.phoneCountryCode || undefined),
     opd: data.opd || listText(rx.tokenNumber),
     issue: data.issue === '—' ? clinicalText(rx.complaint) || data.issue : clinicalText(data.issue) || '—',
     tests: data.tests.length ? data.tests : (rx.testDetails || rx.tests || []).map(test => typeof test === 'string' ? { testName: test } : test),
@@ -196,12 +207,30 @@ const lucide = (children, className = '') => `<svg xmlns="http://www.w3.org/2000
 const STETHOSCOPE = lucide('<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>');
 const CALENDAR_DAYS = lucide('<path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M8 13h.01"/><path d="M12 13h.01"/><path d="M16 13h.01"/><path d="M8 17h.01"/><path d="M12 17h.01"/><path d="M16 17h.01"/>', 'prescription-section-icon');
 
+// A consultant / psychiatrist prescription is the doctor's page in the
+// consultant blue: the stylesheet's teal family swapped for blue.
+const CONSULTANT_COLORS = [
+  ['#0f766e', '#1d4ed8'], ['#183b3b', '#0f2a5f'], ['#f0fdfa', '#eff6ff'],
+  ['#cce7e2', '#bfdbfe'], ['#99ded5', '#93c5fd'], ['#e7f4f1', '#dbeafe'],
+  ['#32645e', '#1e40af'], ['#405f60', '#1e3a8a'], ['#d9e9e5', '#bfdbfe'],
+];
+const consultantCss = css => CONSULTANT_COLORS.reduce(
+  (text, [from, to]) => text.replace(new RegExp(from, 'gi'), to),
+  css,
+);
+export const isConsultantDocument = data => data?.variant === 'consultant';
+
 // The PDF page for doctor, receptionist and patient downloads alike: the
 // web's PrescriptionDocument.jsx markup with its stylesheet, laid out at the
 // web export's fixed 794px paper width (`.prescription-export`), so the app
 // prints the same page the web downloads. Like the web PDF, the elements the
 // web keeps whole across a page break stay whole here too.
+// Consultant pages (`variant: 'consultant'`) are blue, never carry a booking
+// QR, and print the chosen festival theme (`themeImage`, a data URI) behind
+// every page.
 export const buildConsultationDocumentHtml = (data = {}) => {
+  const consultant = isConsultantDocument(data);
+  const themeImage = consultant && /^data:image\//i.test(String(data.themeImage || '')) ? data.themeImage : '';
   const detail = (label, value) => `<div><span>${esc(label)}</span><strong>${esc(value || '-')}</strong></div>`;
   const has = value => Boolean(String(value ?? '').trim());
   const gender = has(data.gender) && data.gender !== '—' ? data.gender : '';
@@ -217,7 +246,7 @@ export const buildConsultationDocumentHtml = (data = {}) => {
   // and phone / email lines when there are any (each kept to one line).
   const footerHeight = hasContactFooter ? (has(data.address) && contact ? 70 : 54) : 32;
 
-  const qr = data.bookingQr
+  const qr = data.bookingQr && !consultant
     ? `<img src="${esc(data.bookingQr)}" alt="Doctor appointment booking QR"/><span>Scan to book<br/>an appointment</span>`
     : '';
 
@@ -227,12 +256,32 @@ export const buildConsultationDocumentHtml = (data = {}) => {
 
   const followUp = data.followUp ? documentDate(data.followUp) : data.followUpRequired ? 'Required' : 'No follow-up scheduled';
 
+  // A consultant page lists only what was recorded (two cells a row) and
+  // drops an empty diagnosis; the doctor page keeps every row, "-" if missing.
+  const recorded = value => (has(value) && String(value).trim() !== '—' ? String(value) : '');
+  const cells = consultant
+    ? [['Patient name', data.patient], ['Date', data.date], ['Age / Gender', ageGender], ['Contact No.', data.phone],
+      ['Weight', weight], ['OPD / Token No.', data.opd], ['Prescription No.', data.prescriptionId]].filter(([, value]) => recorded(value))
+    : [];
+  const patientRows = consultant
+    ? cells.map((cell, index) => (index % 2 ? '' : `<div class="prescription-patient-row${cells[index + 1] ? '' : ' prescription-patient-row-wide'}">${detail(...cell)}${cells[index + 1] ? detail(...cells[index + 1]) : ''}</div>`)).join('')
+    : `<div class="prescription-patient-row">${detail('Patient name', data.patient)}${detail('Date', data.date)}</div>
+<div class="prescription-patient-row">${detail('Age / Gender', ageGender)}${detail('OPD / Token No.', data.opd)}</div>
+<div class="prescription-patient-row">${detail('Weight', weight)}${detail('Prescription No.', data.prescriptionId)}</div>
+<div class="prescription-patient-row prescription-patient-row-wide">${detail('Contact No.', data.phone)}</div>`;
+  const clinicalParts = consultant
+    ? [['Consultation for: ', recorded(data.issue)], ['Diagnosis: ', recorded(data.diagnosis)]].filter(([, value]) => value)
+    : [['Consultation for: ', data.issue || '—'], ['Diagnosis: ', data.diagnosis || '—']];
+  const clinical = clinicalParts.length
+    ? `<section class="prescription-section prescription-clinical"${clinicalParts.length === 1 ? ' style="grid-template-columns:1fr!important"' : ''}>${clinicalParts.map(([label, value]) => `<p><strong>${label}</strong>${esc(value)}</p>`).join('')}</section>`
+    : '';
+
   return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=794"/>
 <style>
 @page { size: A4; margin: 8mm 0 6mm; }
 html, body { margin: 0; padding: 0; background: #fff; }
 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-${PRESCRIPTION_DOCUMENT_CSS}
+${consultant ? consultantCss(PRESCRIPTION_DOCUMENT_CSS) : PRESCRIPTION_DOCUMENT_CSS}
 /* Paged layout: the letterhead is the page table's header, which the printer
    repeats at the top of every page; the contact / brand footer is fixed, which
    prints it at the foot of every page, and the page table's footer keeps that
@@ -270,31 +319,36 @@ ${PRESCRIPTION_DOCUMENT_CSS}
 .prescription-signature-space img { display: block; width: auto; height: auto; max-width: 145px; max-height: 46px; margin: 0; padding: 0; }
 .prescription-signoff > strong { margin-top: 0; }
 .prescription-signature-space + strong { margin-top: -8px; }
-</style></head><body><div class="prescription-export"><article class="prescription-document">
+${themeImage ? `/* Festival theme (last, so it wins over the rules above): fixed, so it
+   prints behind every page; the page itself is see-through and the theme's
+   own artwork replaces the logo watermark. */
+.rx-theme-bg { position: fixed; left: 0; top: 0; width: 100%; height: 100%; object-fit: fill; z-index: 0; pointer-events: none; }
+.prescription-export, .prescription-export .prescription-document { background: transparent; }
+.prescription-export { position: relative; z-index: 1; }
+.prescription-export .prescription-document > .prescription-watermark { display: none; }
+.prescription-export .prescription-document > .rx-page-footer { background: transparent; }` : ''}
+</style></head><body>${themeImage ? `<img class="rx-theme-bg" src="${esc(themeImage)}" alt="" aria-hidden="true"/>` : ''}<div class="prescription-export"><article class="prescription-document">
 <img class="prescription-watermark" src="${prescriptionWatermark}" alt="" aria-hidden="true"/>
 <table class="rx-page"><thead><tr><td>
 <header class="prescription-document-header">
 <div class="prescription-brand"><img src="${prescriptionBrand}" alt="Humaeli - Talk. Connect. Feel Supported."/>${has(data.clinic) ? `<strong>${esc(data.clinic)}</strong>` : ''}</div>
-<div class="prescription-issuer"><span class="prescription-issuer-label">Consulting doctor</span><h2>${esc(data.doctor)}</h2>${has(data.qualification) ? `<p class="prescription-qualification">${esc(data.qualification)}</p>` : ''}${has(data.specialization) ? `<p class="prescription-specialization">${esc(data.specialization)}</p>` : ''}<div class="prescription-doctor-contact">${has(data.registration) ? `<p>${STETHOSCOPE}<span>Reg. No.: ${esc(data.registration)}</span></p>` : ''}</div></div>
+<div class="prescription-issuer"><span class="prescription-issuer-label">${consultant ? 'Consultant' : 'Consulting doctor'}</span><h2>${esc(data.doctor)}</h2>${has(data.qualification) ? `<p class="prescription-qualification">${esc(data.qualification)}</p>` : ''}${has(data.specialization) ? `<p class="prescription-specialization">${esc(data.specialization)}</p>` : ''}<div class="prescription-doctor-contact">${has(data.registration) ? `<p>${STETHOSCOPE}<span>Reg. No.: ${esc(data.registration)}</span></p>` : ''}</div></div>
 <div class="prescription-booking-qr">${qr}</div>
 </header>
 </td></tr></thead>
 <tfoot><tr><td><div class="rx-footer-space"></div></td></tr></tfoot>
 <tbody><tr><td>
 <section class="prescription-patient" aria-label="Patient and visit details">
-<div class="prescription-patient-row">${detail('Patient name', data.patient)}${detail('Date', data.date)}</div>
-<div class="prescription-patient-row">${detail('Age / Gender', ageGender)}${detail('OPD / Token No.', data.opd)}</div>
-<div class="prescription-patient-row">${detail('Weight', weight)}${detail('Prescription No.', data.prescriptionId)}</div>
-<div class="prescription-patient-row prescription-patient-row-wide">${detail('Contact No.', data.phone)}</div>
+${patientRows}
 </section>
 <div class="prescription-title"><h3>Consultation Prescription</h3></div>
-<section class="prescription-section prescription-clinical"><p><strong>Consultation for: </strong>${esc(data.issue || '—')}</p><p><strong>Diagnosis: </strong>${esc(data.diagnosis || '—')}</p></section>
+${clinical}
 <section class="prescription-section prescription-medicines" aria-label="Prescribed medicines"><h3>Prescribed Medicines</h3>${medicineSection}</section>
 ${advice ? `<section class="prescription-section prescription-advice"><div><h3>Advice &amp; Instructions</h3>${adviceLines.length > 1 ? `<ul>${adviceLines.map(line => `<li>${esc(line)}</li>`).join('')}</ul>` : `<p>${esc(advice)}</p>`}</div></section>` : ''}
 ${tests.length ? `<section class="prescription-section prescription-tests"><h3>Recommended tests</h3>${tests.map(test => `<p><strong>${esc(test.testName || test.name)}</strong>${esc(testLine(test))}</p>`).join('')}</section>` : ''}
 </td></tr>
 <tr class="rx-signoff-row"><td>
-<footer class="prescription-document-footer"><div class="prescription-followup">${CALENDAR_DAYS}<div><span>Next Follow-up:</span><strong>${esc(followUp)}</strong></div></div><div class="prescription-signoff">${data.signature ? `<div class="prescription-signature-space"><img src="${esc(data.signature)}" alt="Doctor signature"/></div>` : ''}<strong>${esc(data.doctor)}</strong>${has(data.qualification) ? `<p>${esc(data.qualification)}</p>` : ''}${has(data.registration) ? `<p>Reg. No.: ${esc(data.registration)}</p>` : ''}</div></footer>
+<footer class="prescription-document-footer"${consultant ? ' style="justify-content:flex-end"' : ''}>${consultant ? '' : `<div class="prescription-followup">${CALENDAR_DAYS}<div><span>Next Follow-up:</span><strong>${esc(followUp)}</strong></div></div>`}<div class="prescription-signoff">${data.signature ? `<div class="prescription-signature-space"><img src="${esc(data.signature)}" alt="${consultant ? 'Consultant' : 'Doctor'} signature"/></div>` : ''}<strong>${esc(data.doctor)}</strong>${has(data.qualification) ? `<p>${esc(data.qualification)}</p>` : ''}${has(data.registration) ? `<p>Reg. No.: ${esc(data.registration)}</p>` : ''}</div></footer>
 </td></tr></tbody></table>
 <div class="rx-page-footer">
 ${hasContactFooter ? `<div class="prescription-contact-footer">${has(data.address) ? `<p>${esc(data.address)}</p>` : ''}<p>${esc(contact)}</p></div>` : ''}

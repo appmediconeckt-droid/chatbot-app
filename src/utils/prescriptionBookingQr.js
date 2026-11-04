@@ -3,6 +3,7 @@
 // request per doctor. Unlike the web, a QR that cannot be loaded does not stop
 // the download: the page is printed without it.
 import axiosInstance from '../axiosConfig';
+import { prescriptionThemeDataUri } from './prescriptionFestivalThemes';
 
 const requests = new Map();
 
@@ -24,10 +25,20 @@ const loadBookingQr = (doctorId) => {
 
 // Document data (appointmentToDocument shape) with `bookingQr` filled in.
 export const withBookingQr = async (data = {}) => {
+  // Consultant / psychiatrist prescriptions never carry a booking QR.
+  if (data.variant === 'consultant') return { ...data, bookingQr: '' };
   if (data.bookingQr || !data.doctorId) return data;
   try {
     return { ...data, bookingQr: await loadBookingQr(data.doctorId) };
   } catch {
     return data;
   }
+};
+
+// Everything the PDF page embeds: the doctor's booking QR, or for a
+// consultant page its festival theme background (as a data URI).
+export const withPrescriptionPdfAssets = async (data = {}) => {
+  const loaded = await withBookingQr(data);
+  if (loaded.variant !== 'consultant') return loaded;
+  return { ...loaded, themeImage: await prescriptionThemeDataUri(loaded.themeId) };
 };

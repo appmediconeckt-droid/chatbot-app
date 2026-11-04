@@ -9,6 +9,7 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  ToastAndroid,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -24,11 +25,19 @@ import Text from '../../../../../../components/TranslatedText';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import {
-  DEFAULT_PRESCRIPTION_THEME_ID,
   getPrescriptionFestivalTheme,
+  prescriptionThemeIdOf,
   PRESCRIPTION_FESTIVAL_THEMES,
 } from '../../../../../../utils/prescriptionFestivalThemes';
-import { getPrescriptionValidity } from '../../../../../../utils/prescriptionValidity';
+import { appointmentToDocument, documentDate } from '../../../../../../utils/consultationPrescriptionDocument';
+import ConsultationPrescriptionDocument from '../../../UserDashboard/Tab/Prescription/ConsultationPrescriptionDocument';
+import { downloadDocumentPdf, printDocument } from '../../../../../../utils/printPrescription';
+import { displayDownloadNotification } from '../../../../../../services/notificationService';
+import {
+  loadOwnProfileDetails,
+  loadPrescriptionPatientDetails,
+  mergeProfileIntoPatient,
+} from '../../../../../../utils/patientProfileDetails';
 import {
   prescriptionSignatureUrlOf,
   saveMySignature,
@@ -78,19 +87,6 @@ const getPractitioner = item => {
   };
 };
 
-const formatPractitionerId = id => {
-  const value = cleanText(id);
-  if (!value) return '';
-  return value.length > 8 ? `...${value.slice(-4)}` : value;
-};
-
-const getThemeId = item =>
-  item?.festivalTheme ||
-  item?.prescriptionTheme ||
-  item?.theme ||
-  item?.selectedTheme ||
-  DEFAULT_PRESCRIPTION_THEME_ID;
-
 const getMedicineTimeLabel = medicine => {
   const time = medicine?.timeOfDay || medicine?.time;
   if (Array.isArray(time)) return time.filter(Boolean).join(', ');
@@ -122,206 +118,56 @@ export const PrescriptionPreview = props => (
   </Modal>
 );
 
-// The prescription page itself — letterhead, prescriber, patient, complaint,
-// ℞ medicines, notes, signature. Shared by the psychiatrist preview here and
-// the doctor prescription view on the patient side, so both read the same.
-// Optional extras (clinicLine, sections, notes) stay hidden when empty.
-//   medicines: [{ key, name, details: [[LABEL, value], …] }]
-//   sections:  [{ tag, text }] — shown like the chief complaint (diagnosis…)
-//   notes:     [{ tag, text }] — shown like the instructions (advice, tests…)
-// identityVerified: true / false shows the identity chip; undefined hides it.
-export const PrescriptionPaper = ({
-  themeImage,
-  rxNumber,
-  issuedLabel,
-  brandSub = 'Mental Health · Digital Prescription',
-  clinicLine,
-  practitioner,
-  practitionerId,
-  patientName,
-  photoUri,
-  identityVerified,
-  complaint,
-  sections = [],
-  medicines = [],
-  notes = [],
-  signatureUri,
-}) => {
-  const [paperSize, setPaperSize] = useState({ width: 0, height: 0 });
-  const showIdentity = typeof identityVerified === 'boolean';
-  return (
-    <View
-      style={s.paper}
-      onLayout={({ nativeEvent }) => {
-        const { width, height } = nativeEvent.layout;
-        setPaperSize(current =>
-          current.width === width && current.height === height
-            ? current
-            : { width, height },
-        );
-      }}
-    >
-      {!!themeImage && paperSize.width > 0 && paperSize.height > 0 && (
-        <Image
-          source={themeImage}
-          style={[
-            s.watermark,
-            { width: paperSize.width, height: paperSize.height },
-          ]}
-          resizeMode="stretch"
-        />
-      )}
-      {/* 1 · Letterhead */}
-      <View style={s.rxHead}>
-        <Image
-          source={require('../../../../../../image/HumaeliIcon.png')}
-          style={s.logo}
-        />
-        <View style={s.rxBrand}>
-          <Text style={s.rxBrandName}>Humaeli</Text>
-          <Text style={s.rxBrandSub}>{brandSub}</Text>
-          {!!clinicLine && (
-            <Text translate={false} style={s.rxBrandSub} numberOfLines={2}>
-              {clinicLine}
-            </Text>
-          )}
-        </View>
-        <View style={s.rxMeta}>
-          {!!rxNumber && <Text style={s.rxNumber}>{rxNumber}</Text>}
-          {!!issuedLabel && <Text style={s.rxMetaText}>{issuedLabel}</Text>}
-        </View>
-      </View>
-      <View style={s.rxRule} />
-
-      {/* 2 · Prescriber */}
-      <View style={s.prescriber}>
-        <Text style={s.sectionTag}>PRESCRIBED BY</Text>
-        <Text style={s.doctorName}>{practitioner.name}</Text>
-        <Text style={s.doctorType}>{practitioner.type}</Text>
-        {!!practitionerId && (
-          <Text style={s.practitionerId}>Practitioner ID: {practitionerId}</Text>
-        )}
-      </View>
-
-      {/* 3 · Patient */}
-      <View style={s.patientCard}>
-        <View style={s.patientAvatar}>
-          {photoUri ? (
-            <Image source={{ uri: photoUri }} style={s.fill} />
-          ) : (
-            <Ionicons name="person" size={30} color="#2563EB" />
-          )}
-        </View>
-        <View style={s.flex}>
-          <Text style={s.sectionTag}>PATIENT</Text>
-          <Text style={s.patientName}>{patientName}</Text>
-          {showIdentity && (
-            <View
-              style={[
-                s.idChip,
-                identityVerified ? s.idChipVerified : s.idChipPending,
-              ]}
-            >
-              <Ionicons
-                name={identityVerified ? 'shield-checkmark' : 'time-outline'}
-                size={12}
-                color={identityVerified ? '#166534' : '#B45309'}
-              />
-              <Text
-                style={[
-                  s.idChipText,
-                  identityVerified ? s.idChipTextVerified : s.idChipTextPending,
-                ]}
-              >
-                {identityVerified ? 'Identity verified' : 'Identity pending'}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* 4 · Chief complaint (+ diagnosis etc. in the same style) */}
-      {!!complaint && (
-        <View style={s.complaint}>
-          <Text style={s.sectionTag}>CHIEF COMPLAINT</Text>
-          <Text style={s.complaintText}>{complaint}</Text>
-        </View>
-      )}
-      {sections.filter(section => section.text).map(section => (
-        <View key={section.tag} style={s.complaint}>
-          <Text style={s.sectionTag}>{section.tag}</Text>
-          <Text style={s.complaintText}>{section.text}</Text>
-        </View>
-      ))}
-
-      {/* 5 · ℞ Medicines */}
-      <View style={s.rxTitleRow}>
-        <Text style={s.rxSymbol}>℞</Text>
-        <Text style={s.medicineHeading}>Medicines</Text>
-      </View>
-      {medicines.length === 0 ? (
-        <Text style={s.muted}>No medicines prescribed.</Text>
-      ) : (
-        medicines.map((medicine, index) => (
-          <View key={medicine.key || index} style={s.medicineRow}>
-            <Text style={s.medIndex}>{index + 1}.</Text>
-            <View style={s.flex}>
-              <Text style={s.medName}>{medicine.name}</Text>
-              {medicine.details?.length > 0 && (
-                <View style={s.medGrid}>
-                  {medicine.details.map(([label, value]) => (
-                    <View key={label} style={s.medCell}>
-                      <Text style={s.medLabel}>{label}</Text>
-                      <Text style={s.medValue}>{value}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
-          </View>
-        ))
-      )}
-
-      {/* 6 · Instructions (+ advice, tests, notes, follow-up) */}
-      {notes.filter(note => note.text).map(note => (
-        <View key={note.tag} style={s.instructions}>
-          <Text style={s.sectionTag}>{note.tag}</Text>
-          <Text style={s.instructionsText}>{note.text}</Text>
-        </View>
-      ))}
-
-      {/* 7 · Signature — the prescriber's drawn signature; without one their
-          name, digitally signed. */}
-      <View style={s.signatureBlock}>
-        <View style={s.signaturePanel}>
-          {signatureUri ? (
-            <Image
-              source={{ uri: signatureUri }}
-              style={s.signatureImage}
-              resizeMode="contain"
-            />
-          ) : (
-            <Text style={s.autoSignature} numberOfLines={1} adjustsFontSizeToFit>
-              {practitioner.name}
-            </Text>
-          )}
-          <View style={s.signatureLine} />
-          <Text style={s.signatureName}>{practitioner.name}</Text>
-          <Text style={s.signatureType}>{practitioner.type}</Text>
-          <View style={s.signedRow}>
-            <Ionicons name="checkmark-circle" size={11} color="#16A34A" />
-            <Text style={s.signedText}>
-              Digitally signed
-              {issuedLabel ? ` · ${issuedLabel}` : ''}
-            </Text>
-          </View>
-        </View>
-      </View>
-      <Text style={s.footer}>
-        Issued through Humaeli · www.humaeli.com · support@humaeli.com
-      </Text>
-    </View>
+// A consultant's (psychiatrist's) chat prescription as the doctor's
+// prescription page — same letterhead, patient table, medicines table and
+// sign-off — in the consultant blue, on its festival theme, and never with a
+// booking QR. Used by the consultant's preview here and the patient's
+// Psychiatrist tab, so both see the page the doctor side shows.
+// `profile` (loadPatientProfileDetails) fills age / gender / contact / weight
+// the record doesn't carry; `withContact: false` keeps the number off the page.
+export const consultantRxToDocument = (item = {}, { photoUri, profile, withContact = true } = {}) => {
+  const practitioner = getPractitioner(item);
+  const source = item?.psychiatrist || item?.consultant || item?.doctor || {};
+  const base = appointmentToDocument(
+    { ...item, doctorProfile: source, patient: mergeProfileIntoPatient(item?.patient || {}, profile, { withContact }) },
+    practitioner.name,
   );
+  const id = idOf(item);
+  return {
+    ...base,
+    variant: 'consultant',
+    themeId: prescriptionThemeIdOf(item),
+    doctorId: '',
+    bookingQr: '',
+    doctor: practitioner.name,
+    specialization: practitioner.type,
+    patient: cleanText(item?.patient?.name || item?.patient?.fullName) || 'Anonymous patient',
+    phone: withContact ? base.phone : '',
+    date: documentDate(item?.issuedAt || item?.createdAt),
+    prescriptionId: id ? `RX-${String(id).slice(-6).toUpperCase()}` : base.prescriptionId,
+    issue: cleanText(item?.problem || item?.patientProblem) || '—',
+    diagnosis: cleanText(item?.diagnosis) || '—',
+    medicines: (Array.isArray(item?.medicines) ? item.medicines : []).map(medicine => ({
+      ...medicine,
+      name: medicine.name || medicine.medicine || medicine.medicineName,
+      timeOfDay: getMedicineTimeLabel(medicine)
+        .split(',')
+        .map(slot => slot.trim())
+        .filter(Boolean)
+        .map(slot => slot.charAt(0).toUpperCase() + slot.slice(1))
+        .join(', '),
+      timing: cleanText(medicine.timing || medicine.whenToTake),
+      duration: cleanText(medicine.duration),
+    })),
+    advice: item?.instructions || '',
+    notes: '',
+    tests: [],
+    followUp: null,
+    followUpRequired: false,
+    signature: prescriptionSignatureUrlOf(item),
+    photoUri: photoUri || '',
+    identityVerified: item?.verificationStatus === 'verified',
+  };
 };
 
 const PrescriptionPreviewBody = ({
@@ -332,16 +178,65 @@ const PrescriptionPreviewBody = ({
   saving,
   showThemePicker = true,
   headerGradient,
+  // 'self': the patient viewing their own prescription (their profile, with
+  // contact); 'patient': the consultant (the patient's profile, no contact).
+  profileSource = 'patient',
 }) => {
-  const theme = getPrescriptionFestivalTheme(getThemeId(item));
-  const practitioner = getPractitioner(item);
-  const validity = getPrescriptionValidity(item);
-  const isIdentityVerified = item?.verificationStatus === 'verified';
-  const practitionerId = formatPractitionerId(practitioner.id);
-  const signatureUri = prescriptionSignatureUrlOf(item);
-  const medicines = Array.isArray(item?.medicines) ? item.medicines : [];
-  const rxNumber = idOf(item) ? `RX-${String(idOf(item)).slice(-6).toUpperCase()}` : '';
+  const theme = getPrescriptionFestivalTheme(prescriptionThemeIdOf(item));
+  const self = profileSource === 'self';
+  const [profile, setProfile] = useState({});
+  useEffect(() => {
+    let active = true;
+    (self ? loadOwnProfileDetails() : loadPrescriptionPatientDetails(item))
+      .then(details => { if (active) setProfile(details || {}); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [self, idOf(item)]);
+  const document = consultantRxToDocument(item, { photoUri, profile, withContact: self });
   const insets = useSafeAreaInsets();
+  // Print / Download PDF, as on a doctor's prescription: the same page as
+  // above (blue, its theme, no QR). Patient side green, consultant side blue.
+  const actionColor = headerGradient ? '#006B2C' : '#1D4ED8';
+  const actionGradient = headerGradient || ['#1D4ED8', '#3B82F6'];
+  const [printing, setPrinting] = useState(false);
+  const [makingPdf, setMakingPdf] = useState(false);
+  const handlePrint = async () => {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      await printDocument(document);
+    } catch (error) {
+      Alert.alert(
+        'Print',
+        error?.code === 'PRINT_UNAVAILABLE'
+          ? 'Printing will work after the app is updated.'
+          : error?.message || 'Could not open the print screen.',
+      );
+    } finally {
+      setPrinting(false);
+    }
+  };
+  const handleDownloadPdf = async () => {
+    if (makingPdf) return;
+    setMakingPdf(true);
+    try {
+      const { path, cachePath } = await downloadDocumentPdf(document);
+      const fileName = path.split('/').pop();
+      if (Platform.OS === 'android') ToastAndroid.show(`Downloaded: ${fileName}`, ToastAndroid.SHORT);
+      else Alert.alert('PDF downloaded', fileName);
+      // Status-bar "Download complete" notification; tapping it opens the PDF.
+      displayDownloadNotification({ fileName, openPath: cachePath }).catch(() => {});
+    } catch (error) {
+      Alert.alert(
+        'Prescription PDF',
+        error?.code === 'PRINT_UNAVAILABLE'
+          ? 'The PDF will work after the app is updated.'
+          : error?.message || 'Could not create the PDF.',
+      );
+    } finally {
+      setMakingPdf(false);
+    }
+  };
   const headerContent = (
     <>
       <Text style={[s.modalTitle, headerGradient && s.modalTitleLight]}>
@@ -378,10 +273,7 @@ const PrescriptionPreviewBody = ({
       )}
       <ScrollView
         style={s.previewPage}
-        contentContainerStyle={[
-          s.previewContent,
-          { paddingBottom: 40 + insets.bottom },
-        ]}
+        contentContainerStyle={[s.previewContent, { paddingBottom: 24 }]}
       >
         {showThemePicker && (
           <>
@@ -417,37 +309,42 @@ const PrescriptionPreviewBody = ({
             {saving && <ActivityIndicator color="#2563EB" />}
           </>
         )}
-        <PrescriptionPaper
-          themeImage={theme.image}
-          rxNumber={rxNumber}
-          issuedLabel={validity.issuedLabel}
-          practitioner={practitioner}
-          practitionerId={practitionerId}
-          patientName={item?.patient?.name || 'Anonymous patient'}
-          photoUri={photoUri}
-          identityVerified={isIdentityVerified}
-          complaint={cleanText(item?.problem) ? item.problem : ''}
-          medicines={medicines.map((medicine, index) => ({
-            key: `${medicine.name}-${index}`,
-            name: medicine.name || medicine.medicine,
-            // Plain prescription format: numbered name, then a label/value
-            // grid (no coloured badges).
-            details: [
-              ['DOSE', cleanText(medicine.dosage)],
-              ['WHEN', getMedicineTimeLabel(medicine)
-                .split(',')
-                .map(slot => slot.trim())
-                .filter(Boolean)
-                .map(slot => slot.charAt(0).toUpperCase() + slot.slice(1))
-                .join(' · ')],
-              ['FOOD', cleanText(medicine.timing)],
-              ['DURATION', cleanText(medicine.duration)],
-            ].filter(([, value]) => value),
-          }))}
-          notes={item?.instructions ? [{ tag: 'INSTRUCTIONS', text: item.instructions }] : []}
-          signatureUri={signatureUri}
-        />
+        <ConsultationPrescriptionDocument data={document} bleed={14} />
       </ScrollView>
+
+      {/* Actions — sticky, above the system navigation bar */}
+      <View style={[s.actionBar, { paddingBottom: Math.max(insets.bottom, 10) + 6 }]}>
+        <TouchableOpacity
+          onPress={handlePrint}
+          disabled={printing}
+          activeOpacity={0.85}
+          style={[s.actionBtn, s.actionBtnOutline, { borderColor: actionColor }, printing && s.actionBusy]}
+          accessibilityLabel="Print prescription"
+        >
+          {printing ? (
+            <ActivityIndicator size="small" color={actionColor} />
+          ) : (
+            <Ionicons name="print-outline" size={19} color={actionColor} />
+          )}
+          <Text style={[s.actionTextOutline, { color: actionColor }]}>Print</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={handleDownloadPdf}
+          disabled={makingPdf}
+          activeOpacity={0.85}
+          style={[s.actionBtnWrap, makingPdf && s.actionBusy]}
+          accessibilityLabel="Download prescription as PDF"
+        >
+          <LinearGradient colors={actionGradient} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={s.actionBtn}>
+            {makingPdf ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+            )}
+            <Text style={s.actionText}>{makingPdf ? 'Downloading…' : 'Download PDF'}</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -981,7 +878,7 @@ const s = StyleSheet.create({
   rvTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
   rvSubtitle: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.85)', marginTop: 1 },
   rvFilterScroll: { flexGrow: 0, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  rvFilters: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  rvFilters: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 16 },
   rvFilter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1200,6 +1097,35 @@ const s = StyleSheet.create({
   previewRoot: { flex: 1, backgroundColor: '#E9EEF5' },
   previewPage: { flex: 1, backgroundColor: '#E9EEF5' },
   previewContent: { padding: 14, paddingBottom: 40 },
+  // Print / Download PDF bar (the doctor prescription view's).
+  actionBar: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 8,
+  },
+  actionBtnWrap: { flex: 1.4, borderRadius: 14, overflow: 'hidden' },
+  actionBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  actionBtnOutline: { borderWidth: 1.5, backgroundColor: '#FFFFFF' },
+  actionBusy: { opacity: 0.7 },
+  actionText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
+  actionTextOutline: { fontSize: 15, fontWeight: '900' },
   sectionLabel: { fontWeight: '800', color: '#334155', marginBottom: 9 },
   themeStrip: { marginBottom: 12 },
   themeOption: {

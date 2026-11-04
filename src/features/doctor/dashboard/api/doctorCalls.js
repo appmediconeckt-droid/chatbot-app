@@ -1,15 +1,5 @@
 // Direct video / voice calls from the doctor dashboard — no chat screen.
-//
-// Same flow as the web doctor dashboard (DoctorDashboard/doctorCallRequest.js
-// initiateDoctorCall + doctorChatApi.js startCall):
-//   1. connect the doctor's socket — the server prepares that exact socket
-//      for the call, so the request carries its id;
-//   2. POST /api/video/calls/initiate { receiverId, receiverType: 'user',
-//      callType: 'video' | 'voice', socketId } — the caller comes from the token.
-// Sending initiatorType 'counsellor' with a doctor's id made the server look
-// the doctor up as a counsellor and fail ("Failed to initiate call").
-// CALLER_TYPE is only for the call modals: it gives the doctor the provider
-// view; it is never sent to the server.
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../../../axiosConfig';
 import { socketService } from '../../../../services/socketService';
@@ -30,12 +20,7 @@ export const getDoctorCallerId = async () => {
   return stored ? String(stored) : null;
 };
 
-/**
- * Start a call to a patient.
- * Resolves to { notificationOnly: true, message } when the patient is offline
- * and the server only sent them a notification, otherwise to
- * { callData, callerId } ready for VideoCallModal / VoiceCallModal.
- */
+
 export async function startDirectCall({ patientId, patientName, mode }) {
   const callerId = await getDoctorCallerId();
   if (!callerId) throw new Error('Your doctor account id was not found. Please log in again.');

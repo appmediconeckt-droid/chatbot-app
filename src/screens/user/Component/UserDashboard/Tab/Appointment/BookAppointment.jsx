@@ -30,6 +30,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import PATIENT from '../../../../../../theme/palette';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 import DoctorBookingModal from './DoctorBookingModal';
+import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
 import { toImageUri } from '../../../../../../utils/imageUri';
 import { getCachedLocationSummary } from '../../../../../../utils/locationHelper';
 import {
@@ -198,6 +199,7 @@ const CounselorRequestChat = ({
   const [showBookingModal, setShowBookingModal] = useState(false);
   // Doctors book through the web's clinic / slot flow (DoctorBookingModal).
   const [doctorForBooking, setDoctorForBooking] = useState(null);
+  const [photoViewerUri, setPhotoViewerUri] = useState(null);
   const [bookingDateTime, setBookingDateTime] = useState(() => {
     const nextSlot = new Date();
     const roundedMinutes = Math.ceil(nextSlot.getMinutes() / 15) * 15;
@@ -949,7 +951,10 @@ const CounselorRequestChat = ({
         <View style={styles.cardTop}>
           <View style={styles.cardAvatarWrap}>
             {item.avatarType === 'image' ? (
-              <Image source={{ uri: toImageUri(item.avatar) }} style={styles.cardAvatar} />
+              // Tap the photo to see it full screen (WhatsApp-style).
+              <TouchableOpacity activeOpacity={0.8} onPress={() => setPhotoViewerUri(toImageUri(item.avatar))} accessibilityLabel="View profile photo">
+                <Image source={{ uri: toImageUri(item.avatar) }} style={styles.cardAvatar} />
+              </TouchableOpacity>
             ) : (
               <LinearGradient
                 colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
@@ -1623,6 +1628,8 @@ const CounselorRequestChat = ({
         onClose={() => setDoctorForBooking(null)}
         onAddMoney={onOpenWallet}
       />
+
+      <ZoomableImageViewer visible={!!photoViewerUri} uri={photoViewerUri} onClose={() => setPhotoViewerUri(null)} />
 
       <Modal
         visible={showBookingModal}

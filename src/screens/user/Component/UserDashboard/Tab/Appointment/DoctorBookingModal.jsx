@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../../../components/TranslatedText';
+import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
 import { PATIENT, PATIENT_GRADIENT } from '../../../../../../theme/palette';
 import api from '../../../../../../axiosConfig';
 import { bookedSlotKeys, bookingWindowDays } from '../../../../../../utils/doctorSlots';
@@ -190,6 +191,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   // { title, message, addMoney? } popup shown when Confirm & Book is blocked;
   // `addMoney` adds an Add Money button (wallet balance too low).
   const [bookAlert, setBookAlert] = useState(null);
+  const [photoOpen, setPhotoOpen] = useState(false);
   const [token, setToken] = useState(null);
   const [patientInfo, setPatientInfo] = useState(null);
 
@@ -924,7 +926,10 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         <View style={s.card}>
           <View style={s.doctorTop}>
             {doctor.photo ? (
-              <Image source={{ uri: doctor.photo }} style={s.avatar} />
+              // Tap the photo to see it full screen.
+              <Pressable onPress={() => setPhotoOpen(true)} accessibilityLabel="View profile photo">
+                <Image source={{ uri: doctor.photo }} style={s.avatar} />
+              </Pressable>
             ) : (
               <View style={[s.avatar, s.avatarInitials]}>
                 <Text style={s.avatarText}>{String(doctor.name).replace(/^Dr\.?\s+/i, '').slice(0, 2).toUpperCase()}</Text>
@@ -1133,6 +1138,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
             </View>
           </View>
         )}
+        <ZoomableImageViewer visible={photoOpen && !!doctor.photo} uri={doctor.photo} onClose={() => setPhotoOpen(false)} />
       </SafeAreaProvider>
     </Modal>
   );

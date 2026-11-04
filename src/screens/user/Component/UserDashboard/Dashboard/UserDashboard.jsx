@@ -27,6 +27,7 @@ import {
 } from "react-native";
 import TextInput from '../../../../../components/TranslatedTextInput';
 import Text from '../../../../../components/TranslatedText';
+import ZoomableImageViewer from '../../../../../components/common/ZoomableImageViewer';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useIsFocused, useRoute } from "@react-navigation/native";
@@ -1435,6 +1436,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const [selectedApt, setSelectedApt] = useState(null);
   const [selectedProviderKey, setSelectedProviderKey] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  // Doctor / consultant photo opened full screen (WhatsApp-style).
+  const [photoViewerUri, setPhotoViewerUri] = useState(null);
   // The appointment whose recorded vitals are open ("View Vitals").
   const [vitalsApt, setVitalsApt] = useState(null);
   const [countdown, setCountdown] = useState("");
@@ -1744,6 +1747,19 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     const name = apt?.counselor?.fullName || "Counselor";
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0f172a&color=ffffff&bold=true`;
   };
+  // Only a real uploaded photo opens full screen — not the generated initials.
+  const getRealPhoto = (apt) => {
+    const photo = apt?.counselor?.profilePhoto;
+    return (typeof photo === "string" ? photo : photo?.url) || null;
+  };
+  const renderTappableAvatar = (apt, style) => {
+    const photo = getRealPhoto(apt);
+    return (
+      <TouchableOpacity activeOpacity={0.8} disabled={!photo} onPress={() => setPhotoViewerUri(photo)} accessibilityLabel={t('View profile photo')}>
+        <Image source={{ uri: getAvatarSrc(apt) }} style={style} />
+      </TouchableOpacity>
+    );
+  };
 
   // ---- Derived values for the details sheet ----
   const aptDate = Number.isFinite(Date.parse(selectedApt?.date)) ? new Date(selectedApt.date) : null;
@@ -1874,7 +1890,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 <Text style={styles.providerBackText}>{t('Back to doctors & consultants')}</Text>
               </TouchableOpacity>
               <View style={styles.providerHistoryPerson}>
-                <Image source={{ uri: getAvatarSrc(selectedProvider.latest) }} style={styles.providerHistoryAvatar} />
+                {renderTappableAvatar(selectedProvider.latest, styles.providerHistoryAvatar)}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.providerHistoryName} numberOfLines={1}>{selectedProvider.latest?.counselor?.fullName || t('Provider unavailable')}</Text>
                   <Text style={styles.providerHistoryMeta}>{selectedProvider.appointments.length} {selectedProvider.appointments.length === 1 ? t('appointment') : t('appointments')}</Text>
@@ -1888,7 +1904,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             const completed = provider.appointments.filter((appointment) => String(appointment.status).toLowerCase() === 'completed').length;
             return (
               <TouchableOpacity key={provider.key} style={styles.providerCard} onPress={() => setSelectedProviderKey(provider.key)} activeOpacity={0.85}>
-                <Image source={{ uri: getAvatarSrc(sample) }} style={styles.providerCardAvatar} />
+                {renderTappableAvatar(sample, styles.providerCardAvatar)}
                 <View style={styles.providerCardBody}>
                   <Text style={styles.providerCardName} numberOfLines={1}>{name}</Text>
                   <Text style={styles.providerCardSpec} numberOfLines={1}>
@@ -2169,7 +2185,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             >
               {/* Counselor card */}
               <View style={sheetStyles.docCard}>
-                <Image source={{ uri: getAvatarSrc(selectedApt) }} style={sheetStyles.docAvatar} />
+                {renderTappableAvatar(selectedApt, sheetStyles.docAvatar)}
                 <View style={{ flex: 1 }}>
                   <View style={sheetStyles.docNameRow}>
                     <Text style={sheetStyles.docName} numberOfLines={1}>
@@ -2438,7 +2454,10 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             </ScrollView>
           </View>
         </View>
+        {/* Inside the sheet's Modal so it opens above the sheet. */}
+        <ZoomableImageViewer visible={showDetailsModal && !!photoViewerUri} uri={photoViewerUri} onClose={() => setPhotoViewerUri(null)} />
       </Modal>
+      <ZoomableImageViewer visible={!showDetailsModal && !!photoViewerUri} uri={photoViewerUri} onClose={() => setPhotoViewerUri(null)} />
     </View>
   );
 };

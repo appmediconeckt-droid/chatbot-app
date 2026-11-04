@@ -2,7 +2,7 @@
 // Prescriptions tab. Laid out like a real Rx pad: doctor letterhead, patient
 // details, diagnosis, the ℞ medicine list with timing chips, advice, tests,
 // follow-up and a signature footer.
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,7 @@ import {
 } from '../../../../../../utils/printPrescription';
 import { displayDownloadNotification } from '../../../../../../services/notificationService';
 import ConsultationPrescriptionDocument from './ConsultationPrescriptionDocument';
+import { loadOwnProfileDetails } from '../../../../../../utils/patientProfileDetails';
 import { doctorRxToDocument, followUpText, medicineDuration, medicineTiming, testLine } from '../../../../../../utils/consultationPrescriptionDocument';
 
 // Patient-side screens use the green patient gradient; only the role badge
@@ -119,7 +120,18 @@ function PrescriptionContent({ rx: group, onClose }) {
   const scrollRef = useRef(null);
   const visits = group.visits?.length ? group.visits : [group];
   const [visitIndex, setVisitIndex] = useState(0);
-  const rx = visits[visitIndex] || visits[0];
+  // A psychiatrist's record may lack the patient's age / gender / contact:
+  // they come from the patient's own profile (page, PDF, print and share).
+  const fromPsychiatrist = group.kind === 'psychiatrist';
+  const [ownProfile, setOwnProfile] = useState(null);
+  useEffect(() => {
+    if (!fromPsychiatrist) return undefined;
+    let active = true;
+    loadOwnProfileDetails().then(details => { if (active) setOwnProfile(details || {}); });
+    return () => { active = false; };
+  }, [fromPsychiatrist]);
+  const visit = visits[visitIndex] || visits[0];
+  const rx = fromPsychiatrist && ownProfile ? { ...visit, patientProfile: ownProfile } : visit;
   const selectVisit = index => {
     setVisitIndex(index);
     scrollRef.current?.scrollTo({ y: 0, animated: true });

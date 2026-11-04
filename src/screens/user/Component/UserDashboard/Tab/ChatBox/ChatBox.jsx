@@ -2022,7 +2022,14 @@ const ChatBox = () => {
                 <Ionicons name="arrow-back" size={22} color="#081625" />
               </TouchableOpacity>
               <View style={styles.userDetails}>
-                <View style={styles.profilePic}>
+                {/* Tap the photo to see it full screen (initials have nothing to open). */}
+                <TouchableOpacity
+                  style={styles.profilePic}
+                  activeOpacity={0.8}
+                  disabled={!counselorProfilePhoto || counselorAvatarFailed}
+                  onPress={() => setZoomImageUrl(counselorProfilePhoto)}
+                  accessibilityLabel="View profile photo"
+                >
                   {counselorProfilePhoto && !counselorAvatarFailed ? (
                     <Image
                       source={{ uri: counselorProfilePhoto }}
@@ -2040,7 +2047,7 @@ const ChatBox = () => {
                     </LinearGradient>
                   )}
                   <View style={[styles.activeDot, counselorOnline ? styles.onlineDot : styles.offlineDot]} />
-                </View>
+                </TouchableOpacity>
                 <View style={styles.profileInfo}>
                   <Text style={styles.profileName} numberOfLines={1} ellipsizeMode="tail">
                     {counselorShortName}

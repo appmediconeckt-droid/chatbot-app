@@ -4,7 +4,7 @@
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import RNFS from 'react-native-fs';
 import { buildConsultationDocumentHtml, doctorRxToDocument } from './consultationPrescriptionDocument';
-import { withBookingQr } from './prescriptionBookingQr';
+import { withPrescriptionPdfAssets } from './prescriptionBookingQr';
 
 const escapeHtml = value =>
   String(value ?? '')
@@ -21,8 +21,11 @@ const formatDate = value => {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-// The web's PrescriptionDocument page, with the doctor's booking QR.
-export const buildPrescriptionHtml = async rx => buildConsultationDocumentHtml(await withBookingQr(doctorRxToDocument(rx)));
+// The web's PrescriptionDocument page for a prescription document (the
+// appointmentToDocument shape), with the doctor's booking QR — or, for a
+// consultant page, its festival theme.
+export const buildDocumentHtml = async data => buildConsultationDocumentHtml(await withPrescriptionPdfAssets(data));
+export const buildPrescriptionHtml = async rx => buildDocumentHtml(doctorRxToDocument(rx));
 
 const unavailable = () => {
   const error = new Error('This needs the latest app version.');
@@ -33,13 +36,13 @@ const unavailable = () => {
 // One name per visit — patient, date and token — like the doctor's download.
 // The doctor-and-date name was shared by every visit that day, so Downloads
 // filled with "(1)", "(2)"… copies and an older one got opened.
-const documentName = rx => {
-  const doc = doctorRxToDocument(rx);
-  const patient = doc.patient && doc.patient !== 'Patient' ? doc.patient : '';
-  const date = doc.date && doc.date !== '—' ? doc.date : formatDate(rx.date);
-  return ['Prescription', patient || rx.doctorName || '', date, doc.opd ? `Token ${doc.opd}` : '']
+const nameOf = (doc, { date: fallbackDate, doctorName } = {}) => {
+  const patient = doc.patient && !['Patient', 'Anonymous patient'].includes(doc.patient) ? doc.patient : '';
+  const date = doc.date && doc.date !== '—' ? doc.date : formatDate(fallbackDate);
+  return ['Prescription', patient || doctorName || doc.doctor || '', date, doc.opd ? `Token ${doc.opd}` : '']
     .join(' ').replace(/\s+/g, ' ').trim();
 };
+const documentName = rx => nameOf(doctorRxToDocument(rx), rx);
 
 // Builds the prescription as an A4 PDF and opens the share sheet with it
 // (WhatsApp, Gmail, Drive, Files…). Rejects with code 'PRINT_UNAVAILABLE'
@@ -56,11 +59,14 @@ export const sharePrescriptionPdf = async rx => {
 // Downloads folder. Resolves { path, cachePath }: `path` is the Downloads copy,
 // `cachePath` the app copy that PdfFileOpener can open (FileProvider only
 // covers app storage).
-export const downloadPrescriptionPdf = async rx => {
+export const downloadPrescriptionPdf = async rx => downloadDocumentPdf(doctorRxToDocument(rx), documentName(rx));
+
+// The same download for a prescription document (e.g. a consultant's
+// consultantRxToDocument page).
+export const downloadDocumentPdf = async (data, name = nameOf(data)) => {
   const pdf = NativeModules.PrescriptionPrint;
   if (!pdf?.createPdf) throw unavailable();
-  const name = documentName(rx);
-  const cachePath = await pdf.createPdf(await buildPrescriptionHtml(rx), name);
+  const cachePath = await pdf.createPdf(await buildDocumentHtml(data), name);
 
   // Android 10+ lets apps create files in Downloads without a permission.
   if (Platform.OS === 'android' && Platform.Version < 29) {
@@ -88,8 +94,10 @@ export const downloadPrescriptionPdf = async rx => {
 };
 
 // Android print dialog (printer or "Save as PDF").
-export const printPrescription = async rx => {
+export const printPrescription = async rx => printDocument(doctorRxToDocument(rx), documentName(rx));
+
+export const printDocument = async (data, name = nameOf(data)) => {
   const printer = NativeModules.PrescriptionPrint;
   if (!printer?.printHtml) throw unavailable();
-  return printer.printHtml(await buildPrescriptionHtml(rx), documentName(rx));
+  return printer.printHtml(await buildDocumentHtml(data), name);
 };
